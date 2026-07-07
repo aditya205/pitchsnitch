@@ -1,26 +1,51 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/*
+ * PitchSnitch design tokens.
+ *
+ * One warm-neutral scale for surfaces and text, one ink for primary text,
+ * one accent (cobalt) used sparingly: links, focus, selection, drop targets.
+ * Amber and red exist only as semantic signals (missing data, errors) —
+ * never decoration. Hairline borders over shadows.
+ */
+@theme {
+  --color-canvas: #f7f7f5;
+  --color-surface: #ffffff;
+  --color-surface-sunken: #f1f1ee;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-ink: #1d1d1b;
+  --color-ink-secondary: #55544c;
+  --color-ink-tertiary: #76756c;
+
+  --color-line: #e7e6e1;
+  --color-line-strong: #d6d4cc;
+
+  --color-accent: #4055c8;
+  --color-accent-soft: #eef0fa;
+
+  --color-positive: #3f7d5c;
+  --color-caution: #a16207;
+  --color-negative: #b0433c;
+
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --radius-card: 0.625rem;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+::selection {
+  background: var(--color-accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }

@@ -12,7 +12,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "PitchSnitch",
   description: "Turn any inbound pitch into a scored, source-backed deal sheet.",
 };
