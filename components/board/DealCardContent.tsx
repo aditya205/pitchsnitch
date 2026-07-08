@@ -47,7 +47,7 @@ export function DealCardContent({
       <div className="flex items-start justify-between gap-2">
         <h3
           className={cn(
-            "min-w-0 truncate pt-0.5 text-[13px] font-medium leading-5",
+            "min-w-0 truncate font-display text-[18px] font-semibold leading-5",
             settled ? "text-ink" : "text-ink-secondary"
           )}
         >

@@ -172,7 +172,7 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
           </div>
           <DragOverlay>
             {activeDeal && (
-              <div className="scale-[1.01] rotate-[0.5deg] shadow-[0_10px_28px_rgba(29,29,27,0.14)]">
+              <div className="scale-[1.01] rotate-[0.5deg] shadow-[0_10px_28px_rgba(33,20,45,0.14)]">
                 <DealCardContent
                   deal={activeDeal}
                   progress={progressFor(activeDeal)}

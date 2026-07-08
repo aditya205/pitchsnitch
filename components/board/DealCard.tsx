@@ -52,7 +52,7 @@ export function DealCard({
           progress={progress}
           className={cn(
             "transition-[border-color,box-shadow] hover:border-line-strong",
-            isDragging && "border-line-strong shadow-[0_6px_18px_rgba(29,29,27,0.08)]"
+            isDragging && "border-line-strong shadow-[0_6px_18px_rgba(33,20,45,0.08)]"
           )}
         />
       </Link>

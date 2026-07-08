@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
+import { DownloadPdfButton } from "@/components/deal/DownloadPdfButton";
 import { ScoreRadar } from "@/components/deal/ScoreRadar";
 import { SetupNotice } from "@/components/SetupNotice";
 import { Badge } from "@/components/ui/Badge";
@@ -140,14 +141,14 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
+      <header className="no-print flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/90 px-6 shadow-[0_1px_0_rgba(255,91,85,0.08)]">
         <Link
           href="/"
-          className="text-[13px] text-ink-secondary transition-colors hover:text-ink"
+          className="text-[13px] text-ink-secondary transition-colors hover:text-accent"
         >
           ← Pipeline
         </Link>
-        <span className="text-[13px] font-semibold tracking-tight text-ink-tertiary">
+        <span className="font-display text-[24px] font-semibold leading-none text-accent">
           PitchSnitch
         </span>
       </header>
@@ -212,12 +213,12 @@ function DealSheet({ deal }: { deal: DealDetail }) {
   const thesisFit = normalizeText(deal.thesis_fit);
 
   return (
-    <article className="mx-auto w-full max-w-2xl">
+    <article className="deal-sheet mx-auto w-full max-w-2xl">
       {/* Header */}
       <header>
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
-            <h1 className="text-[22px] font-semibold tracking-tight text-ink">
+            <h1 className="font-display text-[34px] font-semibold leading-none text-ink">
               {companyName}
             </h1>
             {oneLiner ? (
@@ -244,17 +245,24 @@ function DealSheet({ deal }: { deal: DealDetail }) {
               )}
             </p>
           </div>
-          {progress.state === "ready" && (
-            <div className="flex shrink-0 flex-col items-center gap-1">
-              <ScoreRing score={totalScore} size={52} />
-              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
-                Score
-              </span>
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            {progress.state === "ready" && (
+              <div className="flex flex-col items-center gap-1">
+                <ScoreRing score={totalScore} size={52} />
+                <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
+                  Score
+                </span>
+              </div>
+            )}
+            <div className="no-print">
+              <DownloadPdfButton dealId={deal.id} />
             </div>
-          )}
+          </div>
         </div>
 
-        <DealAnalysisStatus dealId={deal.id} progress={progress} />
+        <div className="no-print">
+          <DealAnalysisStatus dealId={deal.id} progress={progress} />
+        </div>
 
         {recommendation && (
           <div className="mt-5 border-l-2 border-ink pl-3">
@@ -489,16 +497,16 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Empty>Not yet scored.</Empty>
           ) : (
             <>
-              <div className="mb-5 grid gap-5 rounded-card border border-line bg-surface p-4 sm:grid-cols-[minmax(0,0.7fr)_minmax(14rem,1fr)]">
+              <div className="mb-5 grid gap-5 rounded-card border border-line bg-surface/85 p-4 shadow-[0_2px_14px_rgba(33,20,45,0.05)] sm:grid-cols-[minmax(0,0.7fr)_minmax(14rem,1fr)]">
                 <div className="flex items-center gap-3 sm:block">
                   <ScoreRing score={totalScore} size={72} />
                   <div className="sm:mt-3">
                     <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
                       Total score
                     </p>
-                    <p className="mt-0.5 text-3xl font-semibold leading-none tracking-tight text-ink">
+                    <p className="mt-0.5 font-display text-5xl font-semibold leading-none text-accent">
                       {typeof totalScore === "number" ? totalScore : "—"}
-                      <span className="ml-1 text-sm font-medium text-ink-tertiary">
+                      <span className="ml-1 font-sans text-sm font-medium text-ink-tertiary">
                         /100
                       </span>
                     </p>

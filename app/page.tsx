@@ -10,8 +10,8 @@ export default async function Home() {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-line bg-surface px-6">
-        <span className="text-[13px] font-semibold tracking-tight text-ink">
+      <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/90 px-6 shadow-[0_1px_0_rgba(255,91,85,0.08)]">
+        <span className="font-display text-[24px] font-semibold leading-none text-accent">
           PitchSnitch
         </span>
         {result.ok && (

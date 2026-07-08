@@ -6,10 +6,10 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const variants = {
-  primary: "bg-ink text-surface hover:bg-ink/85",
+  primary: "bg-accent text-surface hover:bg-accent/85",
   secondary:
-    "border border-line-strong bg-surface text-ink hover:bg-surface-sunken",
-  ghost: "text-ink-secondary hover:bg-surface-sunken hover:text-ink",
+    "border border-line-strong bg-surface text-ink hover:border-accent/35 hover:bg-accent-soft/35",
+  ghost: "text-ink-secondary hover:bg-accent-soft/35 hover:text-ink",
 };
 
 const sizes = {

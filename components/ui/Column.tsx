@@ -22,8 +22,8 @@ export function Column({
         "relative flex min-h-[calc(100vh-9.5rem)] w-[min(78vw,22rem)] shrink-0 flex-col rounded-xl border transition-colors",
         "xl:w-auto xl:min-w-0 xl:flex-1 xl:shrink",
         active
-          ? "border-accent/50 bg-accent-soft/60 shadow-[0_0_0_1px_rgba(64,85,200,0.12)]"
-          : "border-line/70 bg-surface-sunken/60",
+          ? "border-accent/55 bg-accent-soft/65 shadow-[0_0_0_1px_rgba(255,91,85,0.16)]"
+          : "border-line/80 bg-surface/60",
         className
       )}
       {...props}

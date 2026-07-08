@@ -6,7 +6,7 @@ type BadgeProps = React.HTMLAttributes<HTMLSpanElement> & {
 
 const tones = {
   neutral: "bg-surface-sunken text-ink-secondary",
-  outline: "border border-line text-ink-tertiary",
+  outline: "border border-line bg-surface/70 text-ink-tertiary",
   accent: "bg-accent-soft text-accent",
 };
 

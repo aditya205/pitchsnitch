@@ -38,7 +38,7 @@ export function ScoreRing({ score, size = 28 }: ScoreRingProps) {
             strokeLinecap="round"
             strokeDasharray={c}
             strokeDashoffset={c * (1 - clamped / 100)}
-            className="stroke-ink"
+            className="stroke-accent"
           />
         )}
       </svg>

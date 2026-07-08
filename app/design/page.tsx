@@ -89,12 +89,12 @@ export default function DesignPage() {
   return (
     <div className="mx-auto w-full max-w-3xl flex-1 px-6 py-10">
       <header className="mb-10">
-        <h1 className="text-lg font-semibold tracking-tight text-ink">
+        <h1 className="font-display text-4xl font-semibold leading-none text-ink">
           Design foundation
         </h1>
         <p className="mt-1 text-[13px] text-ink-secondary">
-          One neutral scale, one ink, one accent. Hairline borders, quiet
-          shadows, Geist throughout.
+          Cream surfaces, deep plum ink, and coral accents. Geist for utility,
+          Cormorant for brand moments.
         </p>
       </header>
 
@@ -114,8 +114,8 @@ export default function DesignPage() {
 
         <Section title="Type">
           <div className="space-y-2">
-            <p className="text-lg font-semibold tracking-tight text-ink">
-              Page title — 18 semibold
+            <p className="font-display text-4xl font-semibold leading-none text-ink">
+              Display title — Cormorant semibold
             </p>
             <p className="text-sm font-medium text-ink">
               Section heading — 14 medium
