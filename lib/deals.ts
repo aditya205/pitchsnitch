@@ -15,7 +15,7 @@ export async function getDeals(): Promise<DealsResult> {
       ok: false,
       reason: "unconfigured",
       message:
-        "Supabase credentials are placeholders. Fill in .env.local, then run the migration and seed in supabase/.",
+        "Supabase credentials are placeholders. Fill in .env.local, then run the migrations in supabase/migrations.",
     };
   }
   const { data, error } = await getSupabaseAdmin()
@@ -42,7 +42,7 @@ export const getDealDetail = cache(async function getDealDetail(
       ok: false,
       reason: "unconfigured",
       message:
-        "Supabase credentials are placeholders. Fill in .env.local, then run the migrations and seed in supabase/.",
+        "Supabase credentials are placeholders. Fill in .env.local, then run the migrations in supabase/migrations.",
     };
   }
   const { data, error } = await getSupabaseAdmin()

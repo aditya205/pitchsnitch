@@ -88,7 +88,7 @@ export interface Deal {
  * hasn't resolved a company name yet, or it hasn't scored the deal yet. The
  * pipeline writes the score last, so an unscored deal is never fully analyzed.
  */
-export function isDealProcessing(
+function isDealProcessing(
   deal: Pick<Deal, "company_name" | "total_score">
 ): boolean {
   const name = deal.company_name?.trim();
