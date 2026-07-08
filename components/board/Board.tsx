@@ -17,6 +17,7 @@ import {
 } from "@dnd-kit/core";
 import { Button } from "@/components/ui/Button";
 import { Column } from "@/components/ui/Column";
+import { cn } from "@/lib/cn";
 import { updateDealStatus } from "@/lib/actions";
 import { useAutoRefresh } from "@/lib/useAutoRefresh";
 import {
@@ -141,71 +142,86 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
         </Button>
       </div>
 
-      {deals.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-1 py-24 text-center">
-          <p className="text-sm font-medium text-ink-secondary">
-            No deals in the pipeline yet.
-          </p>
-          <p className="text-[13px] text-ink-tertiary">
-            Add one to get started — new submissions appear in New.
-          </p>
+      {/* Columns always render, even with nothing in them: an empty pipeline
+          should look like an empty pipeline, not like a broken page. */}
+      <DndContext
+        id="pitchsnitch-board"
+        sensors={sensors}
+        collisionDetection={collisionDetection}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">
+          {DEAL_STATUSES.map(({ value, label }) => (
+            <BoardColumn
+              key={value}
+              status={value}
+              label={label}
+              deals={deals.filter((d) => d.status === value)}
+              progressFor={progressFor}
+              boardIsEmpty={deals.length === 0}
+            />
+          ))}
         </div>
-      ) : (
-        <DndContext
-          id="pitchsnitch-board"
-          sensors={sensors}
-          collisionDetection={collisionDetection}
-          onDragStart={handleDragStart}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setActiveId(null)}
-        >
-          <div className="flex min-h-0 min-w-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">
-            {DEAL_STATUSES.map(({ value, label }) => (
-              <BoardColumn
-                key={value}
-                status={value}
-                label={label}
-                deals={deals.filter((d) => d.status === value)}
-                progressFor={progressFor}
+        <DragOverlay>
+          {activeDeal && (
+            <div className="scale-[1.01] rotate-[0.5deg] shadow-[0_10px_28px_rgba(33,20,45,0.14)]">
+              <DealCardContent
+                deal={activeDeal}
+                progress={progressFor(activeDeal)}
               />
-            ))}
-          </div>
-          <DragOverlay>
-            {activeDeal && (
-              <div className="scale-[1.01] rotate-[0.5deg] shadow-[0_10px_28px_rgba(33,20,45,0.14)]">
-                <DealCardContent
-                  deal={activeDeal}
-                  progress={progressFor(activeDeal)}
-                />
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
-      )}
+            </div>
+          )}
+        </DragOverlay>
+      </DndContext>
 
       <AddDealDialog open={addOpen} onClose={() => setAddOpen(false)} />
     </div>
   );
 }
 
+// What an empty column says depends on where it sits in the pipeline.
+const EMPTY_COLUMN_COPY: Record<DealStatus, string> = {
+  new: "New submissions land here.",
+  screening: "Nothing in screening.",
+  due_diligence: "Nothing in diligence.",
+  ic_approval: "Nothing awaiting IC.",
+};
+
 function BoardColumn({
   status,
   label,
   deals,
   progressFor,
+  boardIsEmpty,
 }: {
   status: DealStatus;
   label: string;
   deals: Deal[];
   progressFor: (deal: Deal) => DealProgress;
+  boardIsEmpty: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: status });
 
   return (
     <Column ref={setNodeRef} title={label} count={deals.length} active={isOver}>
-      {deals.map((deal) => (
-        <DealCard key={deal.id} deal={deal} progress={progressFor(deal)} />
-      ))}
+      {deals.length === 0 ? (
+        <p
+          className={cn(
+            "m-2 rounded-md border border-dashed border-line px-3 py-6 text-center text-xs leading-relaxed text-ink-tertiary transition-opacity",
+            isOver && "opacity-0"
+          )}
+        >
+          {status === "new" && boardIsEmpty
+            ? "Add a deal to get started."
+            : EMPTY_COLUMN_COPY[status]}
+        </p>
+      ) : (
+        deals.map((deal) => (
+          <DealCard key={deal.id} deal={deal} progress={progressFor(deal)} />
+        ))
+      )}
     </Column>
   );
 }
