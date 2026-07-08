@@ -1,6 +1,7 @@
 import { cache } from "react";
+import { DEAL_FILES_BUCKET } from "./storage";
 import { getSupabaseAdmin, isSupabaseConfigured } from "./supabaseAdmin";
-import type { Deal, DealDetail } from "./types";
+import type { Deal, DealDetail, RawInput } from "./types";
 
 // SERVER-ONLY: reads go through the service-role client.
 
@@ -63,4 +64,47 @@ export const getDealDetail = cache(async function getDealDetail(
     return { ok: false, reason: "not_found", message: "Deal not found." };
   }
   return { ok: true, deal: data as DealDetail };
+});
+
+/**
+ * Stored file_urls are signed and expire after 7 days, so a deal's source
+ * material would eventually 400 when a partner clicked through. Recover the
+ * object path from the stored URL and mint a fresh signature at read time.
+ * Falls back to the stored URL if the path can't be recovered.
+ */
+async function refreshSignedUrl(fileUrl: string): Promise<string> {
+  const marker = `/object/sign/${DEAL_FILES_BUCKET}/`;
+  const start = fileUrl.indexOf(marker);
+  if (start === -1) return fileUrl;
+
+  const path = fileUrl.slice(start + marker.length).split("?")[0];
+  if (!path) return fileUrl;
+
+  const { data } = await getSupabaseAdmin()
+    .storage.from(DEAL_FILES_BUCKET)
+    .createSignedUrl(decodeURIComponent(path), 60 * 60); // one hour is plenty
+
+  return data?.signedUrl ?? fileUrl;
+}
+
+/** The untouched source material a deal was built from, newest first. */
+export const getRawInputs = cache(async function getRawInputs(
+  dealId: string
+): Promise<RawInput[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("raw_inputs")
+    .select("id, source, raw_text, file_url, created_at")
+    .eq("deal_id", dealId)
+    .order("created_at", { ascending: false });
+
+  if (error || !data) return [];
+
+  return Promise.all(
+    (data as RawInput[]).map(async (input) => ({
+      ...input,
+      file_url: input.file_url ? await refreshSignedUrl(input.file_url) : null,
+    }))
+  );
 });

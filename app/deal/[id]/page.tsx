@@ -3,18 +3,20 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
 import { DownloadPdfButton } from "@/components/deal/DownloadPdfButton";
+import { RawInputs } from "@/components/deal/RawInputs";
 import { ScoreRadar } from "@/components/deal/ScoreRadar";
 import { SetupNotice } from "@/components/SetupNotice";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { cn } from "@/lib/cn";
-import { getDealDetail } from "@/lib/deals";
+import { getDealDetail, getRawInputs } from "@/lib/deals";
 import {
   getDealProgress,
   SCORE_DIMENSIONS,
   type DealDetail,
   type ExtractedField,
   type Founder,
+  type RawInput,
 } from "@/lib/types";
 
 // A deal sheet must always reflect the live record.
@@ -191,6 +193,9 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
 
   if (!result.ok && result.reason === "not_found") notFound();
 
+  // Only the sheet renders source material, so don't pay for it on error paths.
+  const rawInputs = result.ok ? await getRawInputs(id) : [];
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="no-print flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/90 px-6 shadow-[0_1px_0_rgba(255,91,85,0.08)]">
@@ -206,7 +211,7 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
       </header>
       <main className="flex flex-1 flex-col px-6 py-8">
         {result.ok ? (
-          <DealSheet deal={result.deal} />
+          <DealSheet deal={result.deal} rawInputs={rawInputs} />
         ) : result.reason === "unconfigured" ? (
           <SetupNotice message={result.message} />
         ) : (
@@ -217,7 +222,13 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
   );
 }
 
-function DealSheet({ deal }: { deal: DealDetail }) {
+function DealSheet({
+  deal,
+  rawInputs,
+}: {
+  deal: DealDetail;
+  rawInputs: RawInput[];
+}) {
   // Relations come back null (not []) when absent.
   const provenance = new Map(
     (deal.extracted_fields ?? []).map((f) => [f.field_name, f])
@@ -621,6 +632,9 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             </>
           )}
         </Section>
+
+        {/* The appendix: where all of the above came from. */}
+        <RawInputs inputs={rawInputs} />
       </div>
     </article>
   );
