@@ -20,7 +20,9 @@ export function Column({
     <section
       className={cn(
         "relative flex min-h-[calc(100vh-9.5rem)] w-[min(78vw,22rem)] shrink-0 flex-col rounded-xl border transition-colors",
-        "xl:w-auto xl:min-w-0 xl:flex-1 xl:shrink",
+        // From 1024px up, all four columns share the width so the board reads in
+        // one glance. Below that they keep a comfortable fixed width and scroll.
+        "lg:w-auto lg:min-w-[13.5rem] lg:flex-1 lg:shrink",
         active
           ? "border-accent/55 bg-accent-soft/65 shadow-[0_0_0_1px_rgba(255,91,85,0.16)]"
           : "border-line/80 bg-surface/60",
