@@ -19,14 +19,21 @@ export function Column({
   return (
     <section
       className={cn(
-        "flex w-[300px] shrink-0 flex-col rounded-xl border transition-colors",
+        "relative flex min-h-[calc(100vh-9.5rem)] w-[min(78vw,22rem)] shrink-0 flex-col rounded-xl border transition-colors",
+        "xl:w-auto xl:min-w-0 xl:flex-1 xl:shrink",
         active
-          ? "border-accent/40 bg-accent-soft/50"
+          ? "border-accent/50 bg-accent-soft/60 shadow-[0_0_0_1px_rgba(64,85,200,0.12)]"
           : "border-line/70 bg-surface-sunken/60",
         className
       )}
       {...props}
     >
+      <div
+        className={cn(
+          "absolute inset-x-3 top-2 h-0.5 rounded-full bg-accent transition-opacity",
+          active ? "opacity-100" : "opacity-0"
+        )}
+      />
       <header className="flex items-baseline gap-2 px-3 pb-2 pt-3">
         <h2 className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
           {title}

@@ -86,6 +86,7 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
   );
 
   const activeDeal = activeId ? deals.find((d) => d.id === activeId) : null;
+  const validStatuses = new Set(DEAL_STATUSES.map((s) => s.value));
 
   function showError(message: string) {
     setError(message);
@@ -102,6 +103,8 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
     const { active, over } = event;
     if (!over) return;
 
+    if (!validStatuses.has(over.id as DealStatus)) return;
+
     const target = over.id as DealStatus;
     const deal = deals.find((d) => d.id === active.id);
     if (!deal || deal.status === target) return;
@@ -116,15 +119,16 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
       .then((result) => {
         if (!result.ok) {
           setDeals(previous);
-          showError(`Couldn't move ${deal.company_name} — ${result.message}`);
+          const name = deal.company_name?.trim() || "deal";
+          showError(`Couldn't move ${name} — ${result.message}`);
         }
       })
       .finally(() => setPendingMoves((n) => n - 1));
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-3">
-      <div className="flex items-center justify-between">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <div className="flex shrink-0 items-center justify-between">
         {error ? (
           <p className="text-[13px] text-negative" role="alert">
             {error}
@@ -148,13 +152,14 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
         </div>
       ) : (
         <DndContext
+          id="pitchsnitch-board"
           sensors={sensors}
           collisionDetection={collisionDetection}
           onDragStart={handleDragStart}
           onDragEnd={handleDragEnd}
           onDragCancel={() => setActiveId(null)}
         >
-          <div className="flex flex-1 items-start gap-3 overflow-x-auto pb-4">
+          <div className="flex min-h-0 min-w-0 flex-1 items-stretch gap-3 overflow-x-auto pb-4">
             {DEAL_STATUSES.map(({ value, label }) => (
               <BoardColumn
                 key={value}
@@ -167,7 +172,7 @@ export function Board({ initialDeals }: { initialDeals: Deal[] }) {
           </div>
           <DragOverlay>
             {activeDeal && (
-              <div className="rotate-[0.5deg] shadow-[0_8px_24px_rgba(29,29,27,0.12)]">
+              <div className="scale-[1.01] rotate-[0.5deg] shadow-[0_10px_28px_rgba(29,29,27,0.14)]">
                 <DealCardContent
                   deal={activeDeal}
                   progress={progressFor(activeDeal)}

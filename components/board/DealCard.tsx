@@ -30,7 +30,7 @@ export function DealCard({
       ref={setNodeRef}
       style={{ transform: CSS.Translate.toString(transform) }}
       className={cn(
-        "cursor-grab active:cursor-grabbing",
+        "cursor-grab transition-[opacity,transform] active:cursor-grabbing",
         isDragging && "opacity-40"
       )}
       {...listeners}
@@ -50,7 +50,10 @@ export function DealCard({
         <DealCardContent
           deal={deal}
           progress={progress}
-          className="transition-colors hover:border-line-strong"
+          className={cn(
+            "transition-[border-color,box-shadow] hover:border-line-strong",
+            isDragging && "border-line-strong shadow-[0_6px_18px_rgba(29,29,27,0.08)]"
+          )}
         />
       </Link>
     </div>

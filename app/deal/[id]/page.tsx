@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
+import { ScoreRadar } from "@/components/deal/ScoreRadar";
 import { SetupNotice } from "@/components/SetupNotice";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
@@ -488,6 +489,28 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Empty>Not yet scored.</Empty>
           ) : (
             <>
+              <div className="mb-5 grid gap-5 rounded-card border border-line bg-surface p-4 sm:grid-cols-[minmax(0,0.7fr)_minmax(14rem,1fr)]">
+                <div className="flex items-center gap-3 sm:block">
+                  <ScoreRing score={totalScore} size={72} />
+                  <div className="sm:mt-3">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
+                      Total score
+                    </p>
+                    <p className="mt-0.5 text-3xl font-semibold leading-none tracking-tight text-ink">
+                      {typeof totalScore === "number" ? totalScore : "—"}
+                      <span className="ml-1 text-sm font-medium text-ink-tertiary">
+                        /100
+                      </span>
+                    </p>
+                  </div>
+                </div>
+                <ScoreRadar
+                  data={scoredDimensions.map(({ label, score }) => ({
+                    label,
+                    score,
+                  }))}
+                />
+              </div>
               <div className="space-y-2.5">
                 {scoredDimensions.map(({ key, label, score }) => (
                   <div key={key} className="flex items-center gap-3">

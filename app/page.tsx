@@ -21,7 +21,7 @@ export default async function Home() {
           </span>
         )}
       </header>
-      <main className="flex flex-1 flex-col px-6 py-5">
+      <main className="flex min-h-0 flex-1 flex-col px-6 py-5">
         {result.ok ? (
           <Board initialDeals={result.deals} />
         ) : (
