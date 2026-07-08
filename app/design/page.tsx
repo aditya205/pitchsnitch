@@ -16,7 +16,7 @@ const sampleDeals: Deal[] = [
     one_liner: "Real-time revenue reconciliation for usage-based SaaS billing.",
     sector: "Fintech",
     stage: "Series A",
-    round: "$12M",
+    round: { raising_amount: "$12M" },
     status: "due_diligence",
     total_score: 81,
     source_channel: "referral",
@@ -28,10 +28,29 @@ const sampleDeals: Deal[] = [
     one_liner: "Payment rails for cross-border payroll in Southeast Asia.",
     sector: "Fintech",
     stage: "Seed",
-    round: "$3M",
+    round: { raising_amount: "$3M" },
     status: "new",
+    total_score: 58,
     source_channel: "email",
     missing_fields: ["arr", "tam"],
+  },
+  // Freshly submitted; the background pipeline hasn't enriched it yet.
+  {
+    id: "sample-3",
+    company_name: "Processing…",
+    status: "new",
+    source_channel: "upload",
+    missing_fields: [],
+  },
+  // The pipeline never ran; the reason is recorded and shown on hover.
+  {
+    id: "sample-4",
+    company_name: "Processing…",
+    status: "new",
+    source_channel: "upload",
+    missing_fields: [],
+    processing_error:
+      "The deal was saved, but the analysis pipeline rejected the request: POST https://…/webhook/… returned 404 Not Found.",
   },
 ];
 
@@ -161,7 +180,7 @@ export default function DesignPage() {
         </Section>
 
         <Section title="Column with deal cards">
-          <Column title="Due Diligence" count={2}>
+          <Column title="Due Diligence" count={sampleDeals.length}>
             {sampleDeals.map((deal) => (
               <DealCardContent key={deal.id} deal={deal} />
             ))}

@@ -48,9 +48,8 @@ export const getDealDetail = cache(async function getDealDetail(
     .from("deals")
     .select("*, founders(*), extracted_fields(*), external_signals(*), scores(*)")
     .eq("id", id)
-    .order("created_at", { referencedTable: "founders", ascending: true })
+    .order("id", { referencedTable: "founders", ascending: true })
     .order("signal_date", { referencedTable: "external_signals", ascending: false })
-    .order("position", { referencedTable: "scores", ascending: true })
     .maybeSingle();
 
   if (error) {

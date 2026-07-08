@@ -1,12 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
 import { SetupNotice } from "@/components/SetupNotice";
 import { Badge } from "@/components/ui/Badge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { cn } from "@/lib/cn";
 import { getDealDetail } from "@/lib/deals";
-import type { DealDetail, ExtractedField } from "@/lib/types";
+import {
+  getDealProgress,
+  SCORE_DIMENSIONS,
+  type DealDetail,
+  type ExtractedField,
+  type Founder,
+} from "@/lib/types";
 
 // A deal sheet must always reflect the live record.
 export const dynamic = "force-dynamic";
@@ -34,23 +41,94 @@ const SIGNAL_DOTS: Record<string, string> = {
   concerning: "bg-caution",
 };
 
-const formatDate = (date: string) =>
-  new Intl.DateTimeFormat("en-US", {
+const formatDate = (date: string) => {
+  const parsed = new Date(date);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(date));
+  }).format(parsed);
+};
+
+function normalizeText(value: unknown): string | null {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? trimmed : null;
+  }
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : null;
+  }
+  // jsonb fields like round.prior_investors may arrive as an array.
+  if (Array.isArray(value)) {
+    const parts = value.map(normalizeText).filter(Boolean);
+    return parts.length ? parts.join(", ") : null;
+  }
+  return null;
+}
+
+function normalizeList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+// round and traction are jsonb blobs written straight from the extraction JSON.
+// Guard the shape: jsonb can legally hold a string, number, or array.
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function getRoundDetails(deal: DealDetail) {
+  const round = asObject(deal.round);
+  return {
+    raising_amount: normalizeText(round?.raising_amount),
+    valuation: normalizeText(round?.valuation),
+    prior_investors: normalizeText(round?.prior_investors),
+  };
+}
+
+function getTractionDetails(deal: DealDetail) {
+  const traction = asObject(deal.traction);
+  return {
+    revenue: normalizeText(traction?.revenue),
+    customers: normalizeText(traction?.customers),
+    growth_rate: normalizeText(traction?.growth_rate),
+  };
+}
+
+// Accepts bare hosts ("acme.com") as well as full URLs; the pipeline emits both.
+function getWebsiteLink(website: string | null) {
+  if (!website) return null;
+  const candidate = /^https?:\/\//i.test(website) ? website : `https://${website}`;
+  try {
+    const url = new URL(candidate);
+    if (!url.hostname.includes(".")) return null;
+    return { href: url.toString(), host: url.hostname.replace(/^www\./, "") };
+  } catch {
+    return null;
+  }
+}
+
+// The pipeline emits a template founder row with every field null. Don't render it.
+function hasFounderContent(founder: Founder): boolean {
+  return Boolean(
+    normalizeText(founder.name) ||
+      normalizeText(founder.role) ||
+      normalizeText(founder.background) ||
+      normalizeText(founder.linkedin_url)
+  );
+}
 
 export async function generateMetadata(
   props: PageProps<"/deal/[id]">
 ): Promise<Metadata> {
   const { id } = await props.params;
   const result = await getDealDetail(id);
-  return {
-    title: result.ok
-      ? `${result.deal.company_name} — PitchSnitch`
-      : "PitchSnitch",
-  };
+  const name = result.ok ? normalizeText(result.deal.company_name) : null;
+  const real = name && !/^processing/i.test(name) ? name : null;
+  return { title: real ? `${real} — PitchSnitch` : "PitchSnitch" };
 }
 
 export default async function DealPage(props: PageProps<"/deal/[id]">) {
@@ -75,8 +153,10 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
       <main className="flex flex-1 flex-col px-6 py-8">
         {result.ok ? (
           <DealSheet deal={result.deal} />
-        ) : (
+        ) : result.reason === "unconfigured" ? (
           <SetupNotice message={result.message} />
+        ) : (
+          <LoadError message={result.message} />
         )}
       </main>
     </div>
@@ -84,14 +164,51 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
 }
 
 function DealSheet({ deal }: { deal: DealDetail }) {
-  const provenance = new Map(deal.extracted_fields.map((f) => [f.field_name, f]));
-  const meta = [
-    deal.sector,
-    deal.stage,
-    deal.location,
-    deal.founded_year && `Founded ${deal.founded_year}`,
-  ].filter(Boolean);
-  const missing = deal.missing_fields ?? [];
+  // Relations come back null (not []) when absent.
+  const provenance = new Map(
+    (deal.extracted_fields ?? []).map((f) => [f.field_name, f])
+  );
+  const signals = deal.external_signals ?? [];
+
+  // PostgREST embeds the unique scores row as a one-element array.
+  const scores = Array.isArray(deal.scores) ? deal.scores[0] : deal.scores;
+  const scoredDimensions = SCORE_DIMENSIONS.flatMap(({ key, label }) => {
+    const score = scores?.[key];
+    return typeof score === "number" && Number.isFinite(score)
+      ? [{ key, label, score: Math.max(0, Math.min(10, score)) }]
+      : [];
+  });
+  const scoreRationale = normalizeText(scores?.rationale);
+  // The pipeline's computed total wins; fall back to the denormalized column.
+  const totalScore =
+    typeof scores?.total === "number" ? scores.total : deal.total_score;
+
+  // Pipeline state drives the status strip below the header, and tells the
+  // em-dashes apart from "we looked and there's nothing".
+  const progress = getDealProgress({
+    company_name: deal.company_name,
+    total_score: totalScore,
+    processing_error: deal.processing_error,
+  });
+  const rawName = normalizeText(deal.company_name);
+  // Never show the intake placeholder verbatim.
+  const companyName =
+    !rawName || /^processing/i.test(rawName) ? "New submission" : rawName;
+  const oneLiner = normalizeText(deal.one_liner);
+  const sector = normalizeText(deal.sector);
+  const stage = normalizeText(deal.stage);
+  const location = normalizeText(deal.location);
+  const foundedYear = normalizeText(deal.founded_year);
+  const meta = [sector, stage, location, foundedYear && `Founded ${foundedYear}`].filter(Boolean);
+  const missing = normalizeList(deal.missing_fields);
+  const redFlags = normalizeList(deal.red_flags);
+  const roundDetails = getRoundDetails(deal);
+  const tractionDetails = getTractionDetails(deal);
+  const websiteLink = getWebsiteLink(normalizeText(deal.website));
+  const founders = (deal.founders ?? []).filter(hasFounderContent);
+  const concerns = normalizeText(deal.concerns);
+  const recommendation = normalizeText(deal.recommendation);
+  const thesisFit = normalizeText(deal.thesis_fit);
 
   return (
     <article className="mx-auto w-full max-w-2xl">
@@ -100,44 +217,51 @@ function DealSheet({ deal }: { deal: DealDetail }) {
         <div className="flex items-start justify-between gap-6">
           <div className="min-w-0">
             <h1 className="text-[22px] font-semibold tracking-tight text-ink">
-              {deal.company_name}
+              {companyName}
             </h1>
-            {deal.one_liner && (
+            {oneLiner ? (
               <p className="mt-1 text-[15px] leading-normal text-ink-secondary">
-                {deal.one_liner}
+                {oneLiner}
               </p>
+            ) : (
+              <p className="mt-1 text-[13px] text-ink-tertiary">No one-liner provided.</p>
             )}
             <p className="mt-2 text-xs text-ink-tertiary">
-              {meta.join(" · ")}
-              {deal.website && (
+              {meta.length > 0 ? meta.join(" · ") : !websiteLink && "Details pending"}
+              {websiteLink && (
                 <>
                   {meta.length > 0 && " · "}
                   <a
-                    href={deal.website}
+                    href={websiteLink.href}
                     target="_blank"
                     rel="noreferrer"
                     className="text-accent hover:underline"
                   >
-                    {new URL(deal.website).hostname} ↗
+                    {websiteLink.host} ↗
                   </a>
                 </>
               )}
             </p>
           </div>
-          <div className="flex shrink-0 flex-col items-center gap-1">
-            <ScoreRing score={deal.total_score} size={52} />
-            <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
-              Score
-            </span>
-          </div>
+          {progress.state === "ready" && (
+            <div className="flex shrink-0 flex-col items-center gap-1">
+              <ScoreRing score={totalScore} size={52} />
+              <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
+                Score
+              </span>
+            </div>
+          )}
         </div>
-        {deal.recommendation && (
+
+        <DealAnalysisStatus dealId={deal.id} progress={progress} />
+
+        {recommendation && (
           <div className="mt-5 border-l-2 border-ink pl-3">
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
               Recommendation
             </p>
             <p className="mt-0.5 text-sm leading-relaxed text-ink">
-              {deal.recommendation}
+              {recommendation}
             </p>
           </div>
         )}
@@ -152,13 +276,23 @@ function DealSheet({ deal }: { deal: DealDetail }) {
         {/* The ask */}
         <Section title="The ask">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
-            <Tile label="Round" value={deal.round} prov={provenance.get("round")} />
+            <Tile
+              label="Round"
+              value={roundDetails.raising_amount}
+              prov={provenance.get("round")}
+            />
             <Tile
               label="Valuation"
-              value={deal.valuation}
+              value={roundDetails.valuation}
               prov={provenance.get("valuation")}
             />
             <Tile label="TAM" value={deal.tam} prov={provenance.get("tam")} />
+            <Tile
+              label="Prior investors"
+              value={roundDetails.prior_investors}
+              prov={provenance.get("prior_investors")}
+              className="col-span-full"
+            />
             <Tile
               label="Use of funds"
               value={deal.use_of_funds}
@@ -174,17 +308,17 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Tile label="ARR" value={deal.arr} prov={provenance.get("arr")} />
             <Tile
               label="Revenue"
-              value={deal.revenue}
+              value={tractionDetails.revenue}
               prov={provenance.get("revenue")}
             />
             <Tile
               label="Growth"
-              value={deal.growth}
-              prov={provenance.get("growth")}
+              value={tractionDetails.growth_rate}
+              prov={provenance.get("growth_rate")}
             />
             <Tile
               label="Customers"
-              value={deal.customers}
+              value={tractionDetails.customers}
               prov={provenance.get("customers")}
               className="col-span-2 sm:col-span-1"
             />
@@ -193,51 +327,58 @@ function DealSheet({ deal }: { deal: DealDetail }) {
 
         {/* Team */}
         <Section title="Team">
-          {deal.founders.length === 0 ? (
+          {founders.length === 0 ? (
             <Empty>No founder data yet.</Empty>
           ) : (
             <div className="space-y-4">
-              {deal.founders.map((founder) => (
-                <div key={founder.name}>
-                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                    <span className="text-sm font-medium text-ink">
-                      {founder.name}
-                    </span>
-                    {founder.role && (
-                      <span className="text-xs text-ink-tertiary">
-                        {founder.role}
+              {founders.map((founder, index) => {
+                const founderName = normalizeText(founder.name) ?? "Founder details pending";
+                const founderRole = normalizeText(founder.role);
+                const founderBackground = normalizeText(founder.background);
+                const founderLinkedIn = normalizeText(founder.linkedin_url);
+
+                return (
+                  <div key={`${founderName}-${index}`}>
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                      <span className="text-sm font-medium text-ink">
+                        {founderName}
                       </span>
-                    )}
-                    {founder.source === "external" && (
-                      <ExtTag confidence={founder.confidence} />
-                    )}
-                    {founder.linkedin_url && (
-                      <a
-                        href={founder.linkedin_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-accent hover:underline"
-                      >
-                        LinkedIn ↗
-                      </a>
+                      {founderRole && (
+                        <span className="text-xs text-ink-tertiary">
+                          {founderRole}
+                        </span>
+                      )}
+                      {founder.source === "external" && (
+                        <ExtTag confidence={founder.confidence} />
+                      )}
+                      {founderLinkedIn && (
+                        <a
+                          href={founderLinkedIn}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-accent hover:underline"
+                        >
+                          LinkedIn ↗
+                        </a>
+                      )}
+                    </div>
+                    {founderBackground && (
+                      <p className="mt-0.5 text-[13px] leading-relaxed text-ink-secondary">
+                        {founderBackground}
+                      </p>
                     )}
                   </div>
-                  {founder.background && (
-                    <p className="mt-0.5 text-[13px] leading-relaxed text-ink-secondary">
-                      {founder.background}
-                    </p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </Section>
 
         {/* Thesis */}
         <Section title="Why it fits">
-          {deal.thesis_fit ? (
+          {thesisFit ? (
             <p className="text-sm leading-relaxed text-ink-secondary">
-              {deal.thesis_fit}
+              {thesisFit}
             </p>
           ) : (
             <Empty>No thesis rationale yet.</Empty>
@@ -246,12 +387,15 @@ function DealSheet({ deal }: { deal: DealDetail }) {
 
         {/* Signals */}
         <Section title="Recent signals">
-          {deal.external_signals.length === 0 ? (
+          {signals.length === 0 ? (
             <Empty>No web signals gathered yet.</Empty>
           ) : (
             <ul className="divide-y divide-line">
-              {deal.external_signals.map((signal) => (
-                <li key={signal.title} className="flex gap-3 py-2.5 first:pt-0 last:pb-0">
+              {signals.map((signal, index) => (
+                <li
+                  key={`${signal.url ?? signal.title}-${index}`}
+                  className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
+                >
                   <span className="flex w-24 shrink-0 items-center gap-1.5 self-start pt-1">
                     <span
                       className={cn(
@@ -279,7 +423,7 @@ function DealSheet({ deal }: { deal: DealDetail }) {
                           {signal.title}
                         </span>
                       )}
-                      {signal.signal_date && (
+                      {signal.signal_date && formatDate(signal.signal_date) && (
                         <span className="shrink-0 text-[11px] text-ink-tertiary">
                           {formatDate(signal.signal_date)}
                         </span>
@@ -299,21 +443,20 @@ function DealSheet({ deal }: { deal: DealDetail }) {
 
         {/* Concerns & gaps */}
         <Section title="Concerns & gaps">
-          {deal.concerns ? (
-            <p className="text-sm leading-relaxed text-ink-secondary">
-              {deal.concerns}
-            </p>
+          {concerns ? (
+            <p className="text-sm leading-relaxed text-ink-secondary">{concerns}</p>
           ) : (
-            missing.length === 0 && <Empty>No open concerns or gaps.</Empty>
+            <Empty>No analyst concerns recorded.</Empty>
           )}
-          {missing.length > 0 && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="flex items-center gap-1.5 text-xs text-ink-secondary">
-                <span className="size-1.5 rounded-full bg-caution" />
-                Missing
-              </span>
-              {missing.map((field) => (
-                <Badge key={field} tone="outline">
+        </Section>
+
+        <Section title="Missing fields">
+          {missing.length === 0 ? (
+            <Empty>No fields marked as missing.</Empty>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {missing.map((field, index) => (
+                <Badge key={`${field}-${index}`} tone="outline">
                   {fieldLabel(field)}
                 </Badge>
               ))}
@@ -321,36 +464,56 @@ function DealSheet({ deal }: { deal: DealDetail }) {
           )}
         </Section>
 
+        <Section title="Red flags">
+          {redFlags.length === 0 ? (
+            <Empty>No red flags captured yet.</Empty>
+          ) : (
+            <ul className="space-y-2">
+              {redFlags.map((flag, index) => (
+                <li
+                  key={`${flag}-${index}`}
+                  className="flex items-start gap-2 text-sm text-ink-secondary"
+                >
+                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-caution" />
+                  <span>{flag}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Section>
+
         {/* Score breakdown */}
         <Section title="Score breakdown">
-          {deal.scores.length === 0 ? (
+          {!scoredDimensions.length ? (
             <Empty>Not yet scored.</Empty>
           ) : (
-            <div className="space-y-3">
-              {deal.scores.map((s) => (
-                <div key={s.dimension}>
-                  <div className="flex items-center gap-3">
-                    <span className="w-20 shrink-0 text-xs text-ink-secondary">
-                      {s.dimension}
+            <>
+              <div className="space-y-2.5">
+                {scoredDimensions.map(({ key, label, score }) => (
+                  <div key={key} className="flex items-center gap-3">
+                    <span className="w-28 shrink-0 text-xs text-ink-secondary">
+                      {label}
                     </span>
                     <div className="h-1 flex-1 overflow-hidden rounded-full bg-line">
                       <div
                         className="h-full rounded-full bg-ink"
-                        style={{ width: `${Math.max(0, Math.min(100, s.score))}%` }}
+                        // Sub-scores are 0–10.
+                        style={{ width: `${(score / 10) * 100}%` }}
                       />
                     </div>
-                    <span className="w-7 shrink-0 text-right text-xs font-medium tabular-nums text-ink">
-                      {s.score}
+                    <span className="w-8 shrink-0 text-right text-xs font-medium tabular-nums text-ink">
+                      {score}
+                      <span className="text-ink-tertiary">/10</span>
                     </span>
                   </div>
-                  {s.rationale && (
-                    <p className="ml-[92px] mt-1 text-xs leading-relaxed text-ink-tertiary">
-                      {s.rationale}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+              {scoreRationale && (
+                <p className="mt-4 text-[13px] leading-relaxed text-ink-secondary">
+                  {scoreRationale}
+                </p>
+              )}
+            </>
           )}
         </Section>
       </div>
@@ -386,39 +549,36 @@ function Tile({
   prov?: ExtractedField;
   className?: string;
 }) {
+  // Normalize here so every call site is safe against "" and whitespace-only values.
+  const display = normalizeText(value);
   return (
     <div className={className}>
       <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
         {label}
-        {prov?.source === "external" && (
-          <ExtTag confidence={prov.confidence} sourceUrl={prov.source_url} />
+        {/* Only claim provenance when there's actually a value to attribute. */}
+        {display && prov?.source === "external" && (
+          <ExtTag confidence={prov.confidence} />
         )}
       </dt>
       <dd
         className={cn(
           "mt-1 text-sm leading-snug",
-          value ? "font-medium text-ink" : "text-ink-tertiary"
+          display ? "font-medium text-ink" : "text-ink-tertiary"
         )}
       >
-        {value || "—"}
+        {display ?? "—"}
       </dd>
     </div>
   );
 }
 
 // The provenance marker: web-enriched fields wear this; untagged = submitted.
-function ExtTag({
-  confidence,
-  sourceUrl,
-}: {
-  confidence?: number;
-  sourceUrl?: string;
-}) {
+function ExtTag({ confidence }: { confidence?: number | null }) {
   const tooltip =
-    typeof confidence === "number"
+    typeof confidence === "number" && Number.isFinite(confidence)
       ? `Web-enriched · ${Math.round(confidence * 100)}% confidence`
       : "Web-enriched";
-  const tag = (
+  return (
     <span
       title={tooltip}
       className="inline-flex h-4 items-center rounded-[4px] border border-dashed border-line-strong px-1 align-middle text-[9.5px] font-medium uppercase tracking-[0.08em] text-ink-tertiary"
@@ -426,15 +586,21 @@ function ExtTag({
       ext
     </span>
   );
-  return sourceUrl ? (
-    <a href={sourceUrl} target="_blank" rel="noreferrer">
-      {tag}
-    </a>
-  ) : (
-    tag
-  );
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p className="text-[13px] text-ink-tertiary">{children}</p>;
+}
+
+function LoadError({ message }: { message: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center py-24">
+      <div className="max-w-md rounded-card border border-line bg-surface p-5">
+        <h2 className="text-sm font-medium text-ink">Couldn&apos;t load this deal</h2>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-ink-secondary">
+          {message}
+        </p>
+      </div>
+    </div>
+  );
 }

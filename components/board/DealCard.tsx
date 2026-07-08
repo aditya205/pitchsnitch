@@ -5,10 +5,16 @@ import Link from "next/link";
 import { useDraggable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/cn";
-import type { Deal } from "@/lib/types";
+import type { Deal, DealProgress } from "@/lib/types";
 import { DealCardContent } from "./DealCardContent";
 
-export function DealCard({ deal }: { deal: Deal }) {
+export function DealCard({
+  deal,
+  progress,
+}: {
+  deal: Deal;
+  progress?: DealProgress;
+}) {
   const { attributes, listeners, setNodeRef, transform, isDragging } =
     useDraggable({ id: deal.id });
 
@@ -43,6 +49,7 @@ export function DealCard({ deal }: { deal: Deal }) {
       >
         <DealCardContent
           deal={deal}
+          progress={progress}
           className="transition-colors hover:border-line-strong"
         />
       </Link>

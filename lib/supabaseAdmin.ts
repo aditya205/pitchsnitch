@@ -8,22 +8,28 @@ const isPlaceholder = (value: string | undefined) =>
   !value || value.startsWith("your-");
 
 export function isSupabaseConfigured(): boolean {
-  return (
-    !isPlaceholder(process.env.NEXT_PUBLIC_SUPABASE_URL) &&
-    !isPlaceholder(process.env.SUPABASE_SERVICE_ROLE_KEY)
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const secretKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY;
+
+  return !isPlaceholder(url) && !isPlaceholder(secretKey);
 }
 
 // Lazy so the app can boot (and render a setup notice) before env is configured.
 export function getSupabaseAdmin(): SupabaseClient {
   if (!isSupabaseConfigured()) {
     throw new Error(
-      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.local."
+      "Supabase is not configured. Set NEXT_PUBLIC_SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY) in .env.local."
     );
   }
+  const secretKey =
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.SUPABASE_SECRET_KEY;
+
   client ??= createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    secretKey!,
     { auth: { persistSession: false } }
   );
   return client;
