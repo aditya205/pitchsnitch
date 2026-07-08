@@ -12,6 +12,18 @@ export type SourceTag = "submitted" | "external";
 /** Written on intake, replaced by the pipeline once it extracts a real name. */
 export const DEAL_PLACEHOLDER_NAME = "Processing…";
 
+/** raw_inputs.source for an attached pitch video awaiting transcription. */
+export const RAW_INPUT_VIDEO_SOURCE = "video";
+
+/** A row of raw_inputs: the untouched source material a deal was built from. */
+export interface RawInput {
+  id: string;
+  source?: string | null;
+  raw_text?: string | null;
+  file_url?: string | null;
+  created_at?: string | null;
+}
+
 export interface RoundDetails {
   raising_amount?: string | null;
   valuation?: string | null;
