@@ -25,17 +25,56 @@ const FIELD_LABELS: Record<string, string> = {
   tam: "TAM",
   revenue: "Revenue",
   growth: "Growth",
+  growth_rate: "Growth",
   customers: "Customers",
   round: "Round",
+  raising_amount: "Round",
   valuation: "Valuation",
+  prior_investors: "Prior investors",
   use_of_funds: "Use of funds",
   founders: "Founders",
   website: "Website",
   one_liner: "One-liner",
+  traction: "Traction",
 };
 
-const fieldLabel = (name: string) =>
-  FIELD_LABELS[name] ?? name.replaceAll("_", " ");
+// Unknown field names still need to read as labels, not as column names.
+const fieldLabel = (name: string) => {
+  const known = FIELD_LABELS[name];
+  if (known) return known;
+  const words = name.replaceAll("_", " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/**
+ * extracted_fields.field_name isn't a closed set — the extractor may name the
+ * same value `growth` or `growth_rate`. Accept every alias so a provenance tag
+ * never silently goes missing.
+ */
+const PROVENANCE_ALIASES: Record<string, string[]> = {
+  round: ["round", "raising_amount"],
+  valuation: ["valuation", "round.valuation"],
+  prior_investors: ["prior_investors", "investors"],
+  growth: ["growth", "growth_rate"],
+  revenue: ["revenue"],
+  customers: ["customers"],
+  tam: ["tam"],
+  arr: ["arr"],
+  use_of_funds: ["use_of_funds"],
+  one_liner: ["one_liner", "description"],
+  website: ["website"],
+};
+
+function provenanceFor(
+  map: Map<string, ExtractedField>,
+  field: string
+): ExtractedField | undefined {
+  for (const alias of PROVENANCE_ALIASES[field] ?? [field]) {
+    const hit = map.get(alias);
+    if (hit) return hit;
+  }
+  return undefined;
+}
 
 const SIGNAL_DOTS: Record<string, string> = {
   positive: "bg-positive",
@@ -111,6 +150,19 @@ function getWebsiteLink(website: string | null) {
   } catch {
     return null;
   }
+}
+
+/**
+ * `founders` has no created_at, so the query falls back to ordering by uuid —
+ * i.e. randomly. A partner expects the CEO first. Rank by role, keeping the
+ * original order within a rank so the sort stays stable.
+ */
+const ROLE_RANK = [/chief exec|\bceo\b/i, /founder/i, /\bcto\b|chief tech/i];
+
+function founderRank(founder: Founder): number {
+  const role = founder.role ?? "";
+  const hit = ROLE_RANK.findIndex((pattern) => pattern.test(role));
+  return hit === -1 ? ROLE_RANK.length : hit;
 }
 
 // The pipeline emits a template founder row with every field null. Don't render it.
@@ -207,7 +259,11 @@ function DealSheet({ deal }: { deal: DealDetail }) {
   const roundDetails = getRoundDetails(deal);
   const tractionDetails = getTractionDetails(deal);
   const websiteLink = getWebsiteLink(normalizeText(deal.website));
-  const founders = (deal.founders ?? []).filter(hasFounderContent);
+  const founders = (deal.founders ?? [])
+    .filter(hasFounderContent)
+    .map((founder, index) => ({ founder, index }))
+    .sort((a, b) => founderRank(a.founder) - founderRank(b.founder) || a.index - b.index)
+    .map(({ founder }) => founder);
   const concerns = normalizeText(deal.concerns);
   const recommendation = normalizeText(deal.recommendation);
   const thesisFit = normalizeText(deal.thesis_fit);
@@ -223,7 +279,8 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             </h1>
             {oneLiner ? (
               <p className="mt-1 text-[15px] leading-normal text-ink-secondary">
-                {oneLiner}
+                {oneLiner}{" "}
+                <Prov prov={provenanceFor(provenance, "one_liner")} />
               </p>
             ) : (
               <p className="mt-1 text-[13px] text-ink-tertiary">No one-liner provided.</p>
@@ -240,7 +297,8 @@ function DealSheet({ deal }: { deal: DealDetail }) {
                     className="text-accent hover:underline"
                   >
                     {websiteLink.host} ↗
-                  </a>
+                  </a>{" "}
+                  <Prov prov={provenanceFor(provenance, "website")} />
                 </>
               )}
             </p>
@@ -274,10 +332,9 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             </p>
           </div>
         )}
-        <p className="mt-5 text-[11px] text-ink-tertiary">
-          Fields tagged <ExtTag /> were enriched from the web — hover for
-          confidence, click for the source. Untagged fields are
-          founder-submitted.
+        <p className="mt-5 text-[11px] leading-relaxed text-ink-tertiary">
+          Fields tagged <ExtTag /> were enriched from the web — hover one for its
+          confidence. Untagged fields came from the founders.
         </p>
       </header>
 
@@ -288,24 +345,28 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Tile
               label="Round"
               value={roundDetails.raising_amount}
-              prov={provenance.get("round")}
+              prov={provenanceFor(provenance, "round")}
             />
             <Tile
               label="Valuation"
               value={roundDetails.valuation}
-              prov={provenance.get("valuation")}
+              prov={provenanceFor(provenance, "valuation")}
             />
-            <Tile label="TAM" value={deal.tam} prov={provenance.get("tam")} />
+            <Tile
+              label="TAM"
+              value={deal.tam}
+              prov={provenanceFor(provenance, "tam")}
+            />
             <Tile
               label="Prior investors"
               value={roundDetails.prior_investors}
-              prov={provenance.get("prior_investors")}
+              prov={provenanceFor(provenance, "prior_investors")}
               className="col-span-full"
             />
             <Tile
               label="Use of funds"
               value={deal.use_of_funds}
-              prov={provenance.get("use_of_funds")}
+              prov={provenanceFor(provenance, "use_of_funds")}
               className="col-span-full"
             />
           </dl>
@@ -314,21 +375,25 @@ function DealSheet({ deal }: { deal: DealDetail }) {
         {/* Traction */}
         <Section title="Traction">
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-            <Tile label="ARR" value={deal.arr} prov={provenance.get("arr")} />
+            <Tile
+              label="ARR"
+              value={deal.arr}
+              prov={provenanceFor(provenance, "arr")}
+            />
             <Tile
               label="Revenue"
               value={tractionDetails.revenue}
-              prov={provenance.get("revenue")}
+              prov={provenanceFor(provenance, "revenue")}
             />
             <Tile
               label="Growth"
               value={tractionDetails.growth_rate}
-              prov={provenance.get("growth_rate")}
+              prov={provenanceFor(provenance, "growth")}
             />
             <Tile
               label="Customers"
               value={tractionDetails.customers}
-              prov={provenance.get("customers")}
+              prov={provenanceFor(provenance, "customers")}
               className="col-span-2 sm:col-span-1"
             />
           </dl>
@@ -400,94 +465,102 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Empty>No web signals gathered yet.</Empty>
           ) : (
             <ul className="divide-y divide-line">
-              {signals.map((signal, index) => (
-                <li
-                  key={`${signal.url ?? signal.title}-${index}`}
-                  className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
-                >
-                  <span className="flex w-24 shrink-0 items-center gap-1.5 self-start pt-1">
-                    <span
-                      className={cn(
-                        "size-1.5 rounded-full",
-                        SIGNAL_DOTS[signal.signal_type ?? "neutral"]
-                      )}
-                    />
-                    <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
-                      {signal.signal_type ?? "neutral"}
-                    </span>
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-baseline justify-between gap-3">
+              {signals.map((signal, index) => {
+                const tone = signal.signal_type ?? "neutral";
+                const date = signal.signal_date && formatDate(signal.signal_date);
+                return (
+                  <li
+                    key={`${signal.url ?? signal.title}-${index}`}
+                    className="py-3 first:pt-0 last:pb-0"
+                  >
+                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+                      {/* Never colour alone: the dot is paired with the word. */}
+                      <span className="flex shrink-0 items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            SIGNAL_DOTS[tone]
+                          )}
+                        />
+                        <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
+                          {tone}
+                        </span>
+                      </span>
                       {signal.url ? (
                         <a
                           href={signal.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="truncate text-[13px] font-medium text-ink hover:underline"
+                          className="min-w-0 flex-1 text-[13px] font-medium text-ink hover:underline"
                         >
                           {signal.title} ↗
                         </a>
                       ) : (
-                        <span className="truncate text-[13px] font-medium text-ink">
+                        <span className="min-w-0 flex-1 text-[13px] font-medium text-ink">
                           {signal.title}
                         </span>
                       )}
-                      {signal.signal_date && formatDate(signal.signal_date) && (
-                        <span className="shrink-0 text-[11px] text-ink-tertiary">
-                          {formatDate(signal.signal_date)}
+                      {date && (
+                        <span className="shrink-0 text-[11px] tabular-nums text-ink-tertiary">
+                          {date}
                         </span>
                       )}
                     </div>
                     {signal.summary && (
-                      <p className="mt-0.5 text-xs leading-relaxed text-ink-secondary">
+                      <p className="mt-1 text-xs leading-relaxed text-ink-secondary">
                         {signal.summary}
                       </p>
                     )}
-                  </div>
-                </li>
-              ))}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Section>
 
-        {/* Concerns & gaps */}
+        {/* Concerns, red flags, and data gaps read as one honest assessment
+            rather than three sections each announcing their own emptiness. */}
         <Section title="Concerns & gaps">
-          {concerns ? (
-            <p className="text-sm leading-relaxed text-ink-secondary">{concerns}</p>
+          {!concerns && redFlags.length === 0 && missing.length === 0 ? (
+            <Empty>Nothing flagged. No concerns, no red flags, no data gaps.</Empty>
           ) : (
-            <Empty>No analyst concerns recorded.</Empty>
-          )}
-        </Section>
+            <div className="space-y-5">
+              {concerns && (
+                <p className="text-sm leading-relaxed text-ink-secondary">
+                  {concerns}
+                </p>
+              )}
 
-        <Section title="Missing fields">
-          {missing.length === 0 ? (
-            <Empty>No fields marked as missing.</Empty>
-          ) : (
-            <div className="flex flex-wrap items-center gap-2">
-              {missing.map((field, index) => (
-                <Badge key={`${field}-${index}`} tone="outline">
-                  {fieldLabel(field)}
-                </Badge>
-              ))}
+              {redFlags.length > 0 && (
+                <div>
+                  <SubHeading>Red flags</SubHeading>
+                  <ul className="mt-2 space-y-1.5">
+                    {redFlags.map((flag, index) => (
+                      <li
+                        key={`${flag}-${index}`}
+                        className="flex items-start gap-2 text-sm leading-relaxed text-ink-secondary"
+                      >
+                        <span className="mt-[7px] size-1.5 shrink-0 rounded-full bg-caution" />
+                        <span>{flag}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {missing.length > 0 && (
+                <div>
+                  <SubHeading>Missing from the pitch</SubHeading>
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    {missing.map((field, index) => (
+                      <Badge key={`${field}-${index}`} tone="outline">
+                        {fieldLabel(field)}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          )}
-        </Section>
-
-        <Section title="Red flags">
-          {redFlags.length === 0 ? (
-            <Empty>No red flags captured yet.</Empty>
-          ) : (
-            <ul className="space-y-2">
-              {redFlags.map((flag, index) => (
-                <li
-                  key={`${flag}-${index}`}
-                  className="flex items-start gap-2 text-sm text-ink-secondary"
-                >
-                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-caution" />
-                  <span>{flag}</span>
-                </li>
-              ))}
-            </ul>
           )}
         </Section>
 
@@ -497,20 +570,25 @@ function DealSheet({ deal }: { deal: DealDetail }) {
             <Empty>Not yet scored.</Empty>
           ) : (
             <>
-              <div className="mb-5 grid gap-5 rounded-card border border-line bg-surface/85 p-4 shadow-[0_2px_14px_rgba(33,20,45,0.05)] sm:grid-cols-[minmax(0,0.7fr)_minmax(14rem,1fr)]">
-                <div className="flex items-center gap-3 sm:block">
-                  <ScoreRing score={totalScore} size={72} />
-                  <div className="sm:mt-3">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
-                      Total score
+              {/* The hero figure and the radar are one unit: the number says how
+                  good, the shape says why. The header already carries the ring,
+                  so it isn't repeated here. */}
+              <div className="mb-6 grid items-center gap-6 rounded-card border border-line bg-surface/85 p-5 shadow-[0_2px_14px_rgba(33,20,45,0.05)] md:grid-cols-[auto_minmax(15rem,1fr)]">
+                <div className="min-w-0">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
+                    Total score
+                  </p>
+                  <p className="mt-1 font-display text-6xl font-semibold leading-none text-accent">
+                    {typeof totalScore === "number" ? totalScore : "—"}
+                    <span className="ml-1.5 font-sans text-sm font-medium text-ink-tertiary">
+                      /100
+                    </span>
+                  </p>
+                  {scoreRationale && (
+                    <p className="mt-3 max-w-xs text-[13px] leading-relaxed text-ink-secondary">
+                      {scoreRationale}
                     </p>
-                    <p className="mt-0.5 font-display text-5xl font-semibold leading-none text-accent">
-                      {typeof totalScore === "number" ? totalScore : "—"}
-                      <span className="ml-1 font-sans text-sm font-medium text-ink-tertiary">
-                        /100
-                      </span>
-                    </p>
-                  </div>
+                  )}
                 </div>
                 <ScoreRadar
                   data={scoredDimensions.map(({ label, score }) => ({
@@ -519,31 +597,27 @@ function DealSheet({ deal }: { deal: DealDetail }) {
                   }))}
                 />
               </div>
+
               <div className="space-y-2.5">
                 {scoredDimensions.map(({ key, label, score }) => (
                   <div key={key} className="flex items-center gap-3">
-                    <span className="w-28 shrink-0 text-xs text-ink-secondary">
+                    <span className="w-24 shrink-0 text-xs text-ink-secondary sm:w-28">
                       {label}
                     </span>
-                    <div className="h-1 flex-1 overflow-hidden rounded-full bg-line">
+                    <div className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-line">
                       <div
                         className="h-full rounded-full bg-ink"
                         // Sub-scores are 0–10.
                         style={{ width: `${(score / 10) * 100}%` }}
                       />
                     </div>
-                    <span className="w-8 shrink-0 text-right text-xs font-medium tabular-nums text-ink">
+                    <span className="w-11 shrink-0 text-right text-xs font-medium tabular-nums text-ink">
                       {score}
                       <span className="text-ink-tertiary">/10</span>
                     </span>
                   </div>
                 ))}
               </div>
-              {scoreRationale && (
-                <p className="mt-4 text-[13px] leading-relaxed text-ink-secondary">
-                  {scoreRationale}
-                </p>
-              )}
             </>
           )}
         </Section>
@@ -587,9 +661,7 @@ function Tile({
       <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
         {label}
         {/* Only claim provenance when there's actually a value to attribute. */}
-        {display && prov?.source === "external" && (
-          <ExtTag confidence={prov.confidence} />
-        )}
+        {display && <Prov prov={prov} />}
       </dt>
       <dd
         className={cn(
@@ -616,6 +688,24 @@ function ExtTag({ confidence }: { confidence?: number | null }) {
     >
       ext
     </span>
+  );
+}
+
+/**
+ * The single place that decides whether a field earns a provenance tag, so the
+ * rule ("external gets tagged, submitted stays bare") can't drift between the
+ * header, the tiles, and the team list.
+ */
+function Prov({ prov }: { prov?: ExtractedField }) {
+  if (prov?.source !== "external") return null;
+  return <ExtTag confidence={prov.confidence} />;
+}
+
+function SubHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
+      {children}
+    </p>
   );
 }
 

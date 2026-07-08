@@ -18,9 +18,10 @@ export function ScoreRadar({ data }: { data: ScoreRadarPoint[] }) {
   if (data.length === 0) return null;
 
   return (
-    <div className="h-56 w-full min-w-0">
+    // Squarish so the polygon never flattens; capped so it can't dominate.
+    <div className="aspect-[4/3] max-h-64 w-full min-w-0">
       <ResponsiveContainer width="100%" height="100%">
-        <RadarChart data={data} outerRadius="72%">
+        <RadarChart data={data} outerRadius="70%">
           <PolarGrid stroke="var(--color-line)" strokeWidth={1} />
           <PolarAngleAxis
             dataKey="label"
