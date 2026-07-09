@@ -75,3 +75,50 @@ export async function uploadDealFile(
 
   return { path, signedUrl: data.signedUrl };
 }
+
+async function listStoredFiles(prefix: string): Promise<string[]> {
+  const admin = getSupabaseAdmin();
+  const paths: string[] = [];
+  const limit = 100;
+  let offset = 0;
+
+  while (true) {
+    const { data, error } = await admin.storage
+      .from(DEAL_FILES_BUCKET)
+      .list(prefix, { limit, offset, sortBy: { column: "name", order: "asc" } });
+
+    if (error) {
+      throw new Error(`Could not list deal files: ${error.message}`);
+    }
+
+    for (const entry of data ?? []) {
+      const path = `${prefix}/${entry.name}`;
+      if (entry.id === null) {
+        paths.push(...(await listStoredFiles(path)));
+      } else {
+        paths.push(path);
+      }
+    }
+
+    if (!data || data.length < limit) break;
+    offset += data.length;
+  }
+
+  return paths;
+}
+
+/** Remove every private upload under a deal's storage prefix. */
+export async function deleteDealFiles(dealId: string): Promise<void> {
+  const paths = await listStoredFiles(dealId);
+  const batchSize = 100;
+
+  for (let index = 0; index < paths.length; index += batchSize) {
+    const { error } = await getSupabaseAdmin()
+      .storage.from(DEAL_FILES_BUCKET)
+      .remove(paths.slice(index, index + batchSize));
+
+    if (error) {
+      throw new Error(`Could not delete deal files: ${error.message}`);
+    }
+  }
+}

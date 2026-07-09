@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
+import { DeleteDealButton } from "@/components/deal/DeleteDealButton";
 import { DownloadPdfButton } from "@/components/deal/DownloadPdfButton";
 import { RawInputs } from "@/components/deal/RawInputs";
 import { ScoreRadar } from "@/components/deal/ScoreRadar";
@@ -323,8 +324,9 @@ function DealSheet({
                 </span>
               </div>
             )}
-            <div className="no-print">
+            <div className="no-print flex flex-wrap justify-end gap-2">
               <DownloadPdfButton dealId={deal.id} />
+              <DeleteDealButton dealId={deal.id} companyName={companyName} />
             </div>
           </div>
         </div>
