@@ -199,14 +199,14 @@ export default async function DealPage(props: PageProps<"/deal/[id]">) {
 
   return (
     <div className="flex flex-1 flex-col">
-      <header className="no-print flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/90 px-6 shadow-[0_1px_0_rgba(255,91,85,0.08)]">
+      <header className="no-print flex h-16 shrink-0 items-center justify-between border-b border-accent/25 bg-ink px-6 shadow-[0_1px_0_rgba(33,20,45,0.2)]">
         <Link
           href="/"
-          className="text-[13px] text-ink-secondary transition-colors hover:text-accent"
+          className="text-[13px] text-surface/70 transition-colors hover:text-accent"
         >
           ← Pipeline
         </Link>
-        <span className="font-display text-[24px] font-semibold leading-none text-accent">
+        <span className="font-display text-[34px] font-semibold leading-none text-accent">
           PitchSnitch
         </span>
       </header>

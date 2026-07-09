@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Pulse } from "@/components/ui/Pulse";
@@ -16,6 +16,32 @@ const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 
 const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)}MB`;
 
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  "textarea:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])",
+].join(",");
+
+function getFocusable(container: HTMLElement | null) {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
+    (el) =>
+      !el.hasAttribute("disabled") &&
+      el.getAttribute("aria-hidden") !== "true" &&
+      (el.offsetWidth > 0 || el.offsetHeight > 0 || el.getClientRects().length > 0)
+  );
+}
+
+function focusDialogControl(container: HTMLElement | null) {
+  if (!container) return;
+  const preferred = container.querySelector<HTMLElement>("[data-autofocus]");
+  const target = preferred ?? getFocusable(container)[0] ?? container;
+  target.focus();
+}
+
 export function AddDealDialog({
   open,
   onClose,
@@ -24,6 +50,8 @@ export function AddDealDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [video, setVideo] = useState<File | null>(null);
@@ -37,6 +65,7 @@ export function AddDealDialog({
   const canSubmit =
     (text.trim().length > 0 || file !== null || video !== null) &&
     status !== "submitting";
+  const submitting = status === "submitting";
 
   function reset() {
     setText("");
@@ -52,6 +81,62 @@ export function AddDealDialog({
     if (status === "submitting") return; // don't abandon an in-flight request
     reset();
     onClose();
+  }
+
+  useEffect(() => {
+    if (!open) return;
+
+    restoreFocusRef.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = window.requestAnimationFrame(() =>
+      focusDialogControl(panelRef.current)
+    );
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      restoreFocusRef.current?.focus();
+      restoreFocusRef.current = null;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || status !== "success") return;
+    const frame = window.requestAnimationFrame(() =>
+      focusDialogControl(panelRef.current)
+    );
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, status]);
+
+  function handleDialogKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      handleClose();
+      return;
+    }
+
+    if (event.key !== "Tab") return;
+
+    const focusable = getFocusable(panelRef.current);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      panelRef.current?.focus();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   function pick(
@@ -132,12 +217,12 @@ export function AddDealDialog({
 
   if (!open) return null;
 
-  const submitting = status === "submitting";
-
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       {/* Backdrop */}
       <button
+        type="button"
+        tabIndex={-1}
         aria-label="Close"
         onClick={handleClose}
         className="absolute inset-0 bg-ink/20"
@@ -145,9 +230,12 @@ export function AddDealDialog({
 
       {/* Panel */}
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="add-deal-title"
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
         className="relative flex h-full w-full max-w-md flex-col border-l border-line bg-surface shadow-[-8px_0_24px_rgba(33,20,45,0.10)]"
       >
         <header className="flex shrink-0 items-center justify-between border-b border-line px-5 py-3.5">
@@ -155,6 +243,7 @@ export function AddDealDialog({
             Add deal
           </h2>
           <button
+            type="button"
             onClick={handleClose}
             disabled={submitting}
             className="text-ink-tertiary transition-colors hover:text-ink disabled:opacity-40"
@@ -182,6 +271,7 @@ export function AddDealDialog({
                 file={file}
                 onPick={(f) => pick(f, DOC_MAX_BYTES, setFile)}
                 cta="Choose a file"
+                autoFocus
               />
 
               <FilePicker
@@ -261,6 +351,7 @@ function FilePicker({
   onPick,
   cta,
   note,
+  autoFocus = false,
 }: {
   label: string;
   hint: string;
@@ -269,7 +360,10 @@ function FilePicker({
   onPick: (file: File | null) => void;
   cta: string;
   note?: string;
+  autoFocus?: boolean;
 }) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
   return (
     <div>
       <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
@@ -284,6 +378,7 @@ function FilePicker({
                 {file.name}
               </span>
               <button
+                type="button"
                 onClick={() => onPick(null)}
                 className="shrink-0 text-xs text-ink-tertiary transition-colors hover:text-ink"
               >
@@ -295,21 +390,28 @@ function FilePicker({
             )}
           </div>
         ) : (
-          <label
-            className={cn(
-              "flex cursor-pointer items-center justify-center rounded-md border border-dashed border-line-strong",
-              "px-3 py-4 text-[13px] text-ink-secondary transition-colors",
-              "hover:border-ink-tertiary hover:bg-surface-sunken"
-            )}
-          >
-            {cta}
+          <>
+            <button
+              type="button"
+              data-autofocus={autoFocus ? "" : undefined}
+              className={cn(
+                "flex w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-line-strong",
+                "px-3 py-4 text-[13px] text-ink-secondary transition-colors",
+                "hover:border-ink-tertiary hover:bg-surface-sunken",
+                "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
+              )}
+              onClick={() => inputRef.current?.click()}
+            >
+              {cta}
+            </button>
             <input
+              ref={inputRef}
               type="file"
               accept={accept}
-              className="sr-only"
+              className="hidden"
               onChange={(e) => onPick(e.target.files?.[0] ?? null)}
             />
-          </label>
+          </>
         )}
       </div>
     </div>
@@ -356,7 +458,7 @@ function SuccessState({
         <Button variant="secondary" onClick={onAddAnother}>
           Add another
         </Button>
-        <Button variant="primary" onClick={onClose}>
+        <Button variant="primary" onClick={onClose} data-autofocus>
           Done
         </Button>
       </div>

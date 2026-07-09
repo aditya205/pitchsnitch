@@ -209,7 +209,7 @@ function BoardColumn({
       {deals.length === 0 ? (
         <p
           className={cn(
-            "m-2 rounded-md border border-dashed border-line px-3 py-6 text-center text-xs leading-relaxed text-ink-tertiary transition-opacity",
+            "m-2 rounded-md border border-dashed border-line-strong/55 bg-surface/35 px-3 py-6 text-center text-xs leading-relaxed text-ink-tertiary transition-opacity",
             isOver && "opacity-0"
           )}
         >

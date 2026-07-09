@@ -8,19 +8,19 @@
  * carried through tokens instead of decorative one-offs.
  */
 @theme {
-  --color-canvas: #fbf3ed;
+  --color-canvas: #f7ebe3;
   --color-surface: #fffaf6;
-  --color-surface-sunken: #f5e8df;
+  --color-surface-sunken: #f1ded5;
 
   --color-ink: #21142d;
   --color-ink-secondary: #514157;
   --color-ink-tertiary: #847380;
 
-  --color-line: #ecd8d0;
-  --color-line-strong: #dfbeb5;
+  --color-line: #e6c7be;
+  --color-line-strong: #d69b8f;
 
   --color-accent: #ff5b55;
-  --color-accent-soft: #ffe4dc;
+  --color-accent-soft: #ffe0d8;
 
   --color-positive: #47745d;
   --color-caution: #aa6727;
@@ -44,12 +44,12 @@ body {
 
 body::before {
   background-image:
-    linear-gradient(30deg, rgba(255, 91, 85, 0.12) 1px, transparent 1px),
-    linear-gradient(150deg, rgba(255, 91, 85, 0.08) 1px, transparent 1px);
+    linear-gradient(30deg, rgba(255, 91, 85, 0.1) 1px, transparent 1px),
+    linear-gradient(150deg, rgba(255, 91, 85, 0.06) 1px, transparent 1px);
   background-size: 72px 72px;
   content: "";
   inset: 0;
-  opacity: 0.42;
+  opacity: 0.34;
   pointer-events: none;
   position: fixed;
   z-index: 0;

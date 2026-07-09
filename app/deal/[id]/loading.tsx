@@ -5,9 +5,9 @@ import { Skeleton } from "@/components/ui/Skeleton";
 export default function Loading() {
   return (
     <div className="flex flex-1 flex-col">
-      <header className="flex h-14 shrink-0 items-center justify-between border-b border-line bg-surface/90 px-6 shadow-[0_1px_0_rgba(255,91,85,0.08)]">
-        <Skeleton className="h-4 w-20" />
-        <span className="font-display text-[24px] font-semibold leading-none text-accent">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-accent/25 bg-ink px-6 shadow-[0_1px_0_rgba(33,20,45,0.2)]">
+        <Skeleton className="h-4 w-20 bg-surface/20" />
+        <span className="font-display text-[34px] font-semibold leading-none text-accent">
           PitchSnitch
         </span>
       </header>
