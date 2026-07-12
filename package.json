@@ -13,6 +13,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/utilities": "^3.2.2",
     "@supabase/supabase-js": "^2.110.1",
+    "countries-list": "^3.4.0",
     "next": "16.2.10",
     "pdf-lib": "^1.17.1",
     "react": "19.2.4",

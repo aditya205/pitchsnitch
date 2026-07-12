@@ -14,10 +14,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /**
  * Attach a pitch video to an existing deal.
  *
- * Deliberately a separate endpoint from /api/deals/create, which is
- * mid-development and must not be modified. The Add Deal form creates the deal
- * first, then posts the video here. The transcription step is not built yet —
- * we only store the file and record a raw_inputs row pointing at it.
+ * Kept for compatibility with any older clients that already have a deal ID.
+ * New Add Deal submissions send their single selected file through
+ * /api/deals/create so the analysis webhook receives file_url immediately.
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {

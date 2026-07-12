@@ -7,12 +7,21 @@ import { Pulse } from "@/components/ui/Pulse";
 import { cn } from "@/lib/cn";
 
 type Status = "idle" | "submitting" | "success" | "error";
+type IntakeFileKind = "document" | "video";
+type SelectedIntakeFile = {
+  file: File;
+  kind: IntakeFileKind;
+};
 
 const DOC_ACCEPT = ".pdf,.docx,.doc";
+const DOC_EXTENSIONS = [".pdf", ".docx", ".doc"];
 const DOC_MAX_BYTES = 20 * 1024 * 1024;
 
 const VIDEO_ACCEPT = ".mp4,.mov";
+const VIDEO_EXTENSIONS = [".mp4", ".mov"];
 const VIDEO_MAX_BYTES = 50 * 1024 * 1024;
+
+const FILE_ACCEPT = `${DOC_ACCEPT},${VIDEO_ACCEPT}`;
 
 const megabytes = (bytes: number) => `${Math.round(bytes / 1024 / 1024)}MB`;
 
@@ -42,6 +51,35 @@ function focusDialogControl(container: HTMLElement | null) {
   target.focus();
 }
 
+function fileExtension(file: File) {
+  const lower = file.name.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  return dot === -1 ? "" : lower.slice(dot);
+}
+
+function fileKind(file: File): IntakeFileKind | null {
+  const extension = fileExtension(file);
+  if (
+    DOC_EXTENSIONS.includes(extension) ||
+    file.type === "application/pdf" ||
+    file.type === "application/msword" ||
+    file.type ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    return "document";
+  }
+
+  if (
+    VIDEO_EXTENSIONS.includes(extension) ||
+    file.type === "video/mp4" ||
+    file.type === "video/quicktime"
+  ) {
+    return "video";
+  }
+
+  return null;
+}
+
 export function AddDealDialog({
   open,
   onClose,
@@ -53,27 +91,23 @@ export function AddDealDialog({
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const [text, setText] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [video, setVideo] = useState<File | null>(null);
+  const [selectedFile, setSelectedFile] = useState<SelectedIntakeFile | null>(
+    null
+  );
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState<string | null>(null);
-  // Survives into the success screen so we can promise transcription.
-  const [videoAttached, setVideoAttached] = useState(false);
   // Remounts the file inputs to clear their internal value on reset.
   const [inputKey, setInputKey] = useState(0);
 
   const canSubmit =
-    (text.trim().length > 0 || file !== null || video !== null) &&
-    status !== "submitting";
+    (text.trim().length > 0 || selectedFile !== null) && status !== "submitting";
   const submitting = status === "submitting";
 
   function reset() {
     setText("");
-    setFile(null);
-    setVideo(null);
+    setSelectedFile(null);
     setStatus("idle");
     setMessage(null);
-    setVideoAttached(false);
     setInputKey((k) => k + 1);
   }
 
@@ -139,23 +173,47 @@ export function AddDealDialog({
     }
   }
 
-  function pick(
-    selected: File | null,
-    maxBytes: number,
-    set: (f: File | null) => void
-  ) {
-    if (!selected) {
-      set(null);
-      return;
+  function pickFiles(selected: FileList | File[]) {
+    const files = Array.from(selected);
+    if (files.length === 0) return;
+
+    let picked: SelectedIntakeFile | null = null;
+    const warnings: string[] = [];
+
+    for (const selectedFile of files) {
+      const kind = fileKind(selectedFile);
+      if (!kind) {
+        warnings.push(`${selectedFile.name} is not a supported file type.`);
+        continue;
+      }
+
+      const maxBytes = kind === "document" ? DOC_MAX_BYTES : VIDEO_MAX_BYTES;
+      if (selectedFile.size > maxBytes) {
+        warnings.push(
+          `${selectedFile.name} is too large (max ${megabytes(maxBytes)}).`
+        );
+        continue;
+      }
+
+      if (picked) {
+        warnings.push(`Only one file can be attached; skipped ${selectedFile.name}.`);
+        continue;
+      }
+
+      picked = { file: selectedFile, kind };
     }
-    if (selected.size > maxBytes) {
-      setMessage(`That file is too large (max ${megabytes(maxBytes)}).`);
+
+    if (picked) {
+      setSelectedFile(picked);
+    }
+
+    if (warnings.length > 0) {
+      setMessage(warnings.join(" "));
       setStatus("error");
-      return;
+    } else {
+      setMessage(null);
+      if (status === "error") setStatus("idle");
     }
-    set(selected);
-    setMessage(null);
-    if (status === "error") setStatus("idle");
   }
 
   async function handleSubmit() {
@@ -165,7 +223,7 @@ export function AddDealDialog({
 
     const body = new FormData();
     if (text.trim()) body.set("raw_text", text.trim());
-    if (file) body.set("file", file);
+    if (selectedFile) body.set("file", selectedFile.file);
 
     try {
       const res = await fetch("/api/deals/create", { method: "POST", body });
@@ -178,32 +236,6 @@ export function AddDealDialog({
       }
 
       const warnings: string[] = Array.isArray(data.warnings) ? [...data.warnings] : [];
-
-      // The video rides on a second request: the deal must exist to own it.
-      // A failure here is non-fatal — the deal is already saved.
-      if (video && data.deal_id) {
-        const videoBody = new FormData();
-        videoBody.set("deal_id", data.deal_id);
-        videoBody.set("video", video);
-        try {
-          const videoRes = await fetch("/api/deals/video", {
-            method: "POST",
-            body: videoBody,
-          });
-          if (videoRes.ok) {
-            setVideoAttached(true);
-          } else {
-            const videoData = await videoRes.json().catch(() => ({}));
-            warnings.push(
-              `The deal was saved, but the video didn't upload: ${
-                videoData.error ?? `HTTP ${videoRes.status}`
-              }`
-            );
-          }
-        } catch {
-          warnings.push("The deal was saved, but the video upload failed.");
-        }
-      }
 
       setStatus("success");
       if (warnings.length > 0) setMessage(warnings.join(" "));
@@ -256,7 +288,6 @@ export function AddDealDialog({
         {status === "success" ? (
           <SuccessState
             message={message}
-            videoAttached={videoAttached}
             onAddAnother={reset}
             onClose={handleClose}
           />
@@ -264,27 +295,11 @@ export function AddDealDialog({
           <>
             <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5">
               <FilePicker
-                key={`doc-${inputKey}`}
-                label="Attachment"
-                hint="Pitch deck or memo — PDF or DOCX. Optional."
-                accept={DOC_ACCEPT}
-                file={file}
-                onPick={(f) => pick(f, DOC_MAX_BYTES, setFile)}
-                cta="Choose a file"
+                key={`files-${inputKey}`}
+                selectedFile={selectedFile}
+                onPick={pickFiles}
+                onRemove={() => setSelectedFile(null)}
                 autoFocus
-              />
-
-              <FilePicker
-                key={`video-${inputKey}`}
-                label="Pitch video"
-                hint={`Founder video or demo — MP4 or MOV, up to ${megabytes(
-                  VIDEO_MAX_BYTES
-                )}. Optional.`}
-                accept={VIDEO_ACCEPT}
-                file={video}
-                onPick={(f) => pick(f, VIDEO_MAX_BYTES, setVideo)}
-                cta="Choose a video"
-                note="Will be transcribed after upload."
               />
 
               {/* Paste box */}
@@ -321,10 +336,12 @@ export function AddDealDialog({
                 {submitting && <Pulse />}
                 <span className="truncate">
                   {submitting
-                    ? video
+                    ? selectedFile?.kind === "video"
                       ? "Uploading video…"
-                      : "Creating deal…"
-                    : "Add a file, a video, text, or any combination."}
+                      : selectedFile
+                        ? "Uploading file…"
+                        : "Creating deal…"
+                    : "Add one file, text, or both."}
                 </span>
               </span>
               <div className="flex shrink-0 items-center gap-2">
@@ -344,88 +361,131 @@ export function AddDealDialog({
 }
 
 function FilePicker({
-  label,
-  hint,
-  accept,
-  file,
+  selectedFile,
   onPick,
-  cta,
-  note,
+  onRemove,
   autoFocus = false,
 }: {
-  label: string;
-  hint: string;
-  accept: string;
-  file: File | null;
-  onPick: (file: File | null) => void;
-  cta: string;
-  note?: string;
+  selectedFile: SelectedIntakeFile | null;
+  onPick: (files: FileList | File[]) => void;
+  onRemove: () => void;
   autoFocus?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+
+  function handleDrop(event: React.DragEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    setDragging(false);
+    onPick(event.dataTransfer.files);
+  }
 
   return (
     <div>
       <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-tertiary">
-        {label}
+        File
       </span>
-      <p className="mt-1 text-xs text-ink-tertiary">{hint}</p>
+      <p className="mt-1 text-xs text-ink-tertiary">
+        Drop or choose one deck, memo, or pitch video. PDF, DOCX, DOC, MP4, or MOV.
+      </p>
       <div className="mt-2">
-        {file ? (
-          <div className="rounded-md border border-line bg-surface-sunken px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="min-w-0 truncate text-[13px] text-ink">
-                {file.name}
-              </span>
-              <button
-                type="button"
-                onClick={() => onPick(null)}
-                className="shrink-0 text-xs text-ink-tertiary transition-colors hover:text-ink"
-              >
-                Remove
-              </button>
-            </div>
-            {note && (
-              <p className="mt-0.5 text-[11px] text-ink-tertiary">{note}</p>
-            )}
-          </div>
-        ) : (
-          <>
-            <button
-              type="button"
-              data-autofocus={autoFocus ? "" : undefined}
-              className={cn(
-                "flex w-full cursor-pointer items-center justify-center rounded-md border border-dashed border-line-strong",
-                "px-3 py-4 text-[13px] text-ink-secondary transition-colors",
-                "hover:border-ink-tertiary hover:bg-surface-sunken",
-                "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20"
-              )}
-              onClick={() => inputRef.current?.click()}
-            >
-              {cta}
-            </button>
-            <input
-              ref={inputRef}
-              type="file"
-              accept={accept}
-              className="hidden"
-              onChange={(e) => onPick(e.target.files?.[0] ?? null)}
+        <button
+          type="button"
+          data-autofocus={autoFocus ? "" : undefined}
+          className={cn(
+            "flex w-full cursor-pointer flex-col items-center justify-center rounded-md border border-dashed border-line-strong",
+            "px-3 py-5 text-center text-[13px] text-ink-secondary transition-colors",
+            "hover:border-ink-tertiary hover:bg-surface-sunken",
+            "focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20",
+            dragging && "border-accent bg-accent-soft/35 text-ink"
+          )}
+          onClick={() => inputRef.current?.click()}
+          onDragEnter={(event) => {
+            event.preventDefault();
+            setDragging(true);
+          }}
+          onDragOver={(event) => event.preventDefault()}
+          onDragLeave={(event) => {
+            event.preventDefault();
+            setDragging(false);
+          }}
+          onDrop={handleDrop}
+        >
+          <span className="font-medium text-ink">
+            Drop one file here or choose a file
+          </span>
+          <span className="mt-1 text-[11px] text-ink-tertiary">
+            Deck max {megabytes(DOC_MAX_BYTES)} · video max{" "}
+            {megabytes(VIDEO_MAX_BYTES)}
+          </span>
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept={FILE_ACCEPT}
+          className="hidden"
+          onChange={(event) => {
+            if (event.target.files) onPick(event.target.files);
+            event.currentTarget.value = "";
+          }}
+        />
+
+        {selectedFile && (
+          <div className="mt-2 space-y-2">
+            <SelectedFile
+              label={selectedFile.kind === "video" ? "Pitch video" : "Attachment"}
+              file={selectedFile.file}
+              note={
+                selectedFile.kind === "video"
+                  ? "Will be transcribed after upload."
+                  : undefined
+              }
+              onRemove={onRemove}
             />
-          </>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+function SelectedFile({
+  label,
+  file,
+  note,
+  onRemove,
+}: {
+  label: string;
+  file: File;
+  note?: string;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-line bg-surface-sunken px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-[13px] text-ink">
+          <span className="text-ink-tertiary">{label}: </span>
+          {file.name}
+        </span>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="shrink-0 text-xs text-ink-tertiary transition-colors hover:text-ink"
+        >
+          Remove
+        </button>
+      </div>
+      {note && <p className="mt-0.5 text-[11px] text-ink-tertiary">{note}</p>}
+    </div>
+  );
+}
+
 function SuccessState({
   message,
-  videoAttached,
   onAddAnother,
   onClose,
 }: {
   message: string | null;
-  videoAttached: boolean;
   onAddAnother: () => void;
   onClose: () => void;
 }) {
@@ -440,13 +500,6 @@ function SuccessState({
           It&apos;s in the New column while the pipeline extracts the details.
         </p>
       </div>
-
-      {videoAttached && (
-        <p className="flex items-center gap-1.5 text-[13px] text-ink-secondary">
-          <Pulse />
-          Video attached — it will be transcribed.
-        </p>
-      )}
 
       {message && (
         <p className="max-w-xs text-xs leading-relaxed text-caution" role="alert">

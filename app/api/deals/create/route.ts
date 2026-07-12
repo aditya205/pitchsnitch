@@ -1,11 +1,24 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabaseAdmin";
 import { isAcceptedFileType, uploadDealFile } from "@/lib/storage";
-import { DEAL_PLACEHOLDER_NAME } from "@/lib/types";
+import {
+  isAcceptedVideoType,
+  MAX_VIDEO_BYTES,
+  uploadDealVideo,
+} from "@/lib/videoStorage";
+import { DEAL_PLACEHOLDER_NAME, RAW_INPUT_VIDEO_SOURCE } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+
+type IntakeFileKind = "document" | "video";
+
+function intakeFileKind(file: File): IntakeFileKind | null {
+  if (isAcceptedFileType(file)) return "document";
+  if (isAcceptedVideoType(file)) return "video";
+  return null;
+}
 
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -27,26 +40,34 @@ export async function POST(request: Request) {
 
   const rawText = (form.get("raw_text") as string | null)?.trim() || null;
   const file = form.get("file");
-  const hasFile = file instanceof File && file.size > 0;
+  const uploadedFile = file instanceof File && file.size > 0 ? file : null;
+  const fileKind = uploadedFile ? intakeFileKind(uploadedFile) : null;
 
   // At least one of file or text is required.
-  if (!rawText && !hasFile) {
+  if (!rawText && !uploadedFile) {
     return NextResponse.json(
       { error: "Provide a file or some text to create a deal." },
       { status: 400 }
     );
   }
 
-  if (hasFile) {
-    if (!isAcceptedFileType(file)) {
+  if (uploadedFile) {
+    if (!fileKind) {
       return NextResponse.json(
-        { error: "Unsupported file type. Upload a PDF or DOCX." },
+        { error: "Unsupported file type. Upload a PDF, DOCX, DOC, MP4, or MOV." },
         { status: 400 }
       );
     }
-    if (file.size > MAX_FILE_BYTES) {
+
+    const maxBytes = fileKind === "video" ? MAX_VIDEO_BYTES : MAX_FILE_BYTES;
+    if (uploadedFile.size > maxBytes) {
       return NextResponse.json(
-        { error: "File is too large (max 20MB)." },
+        {
+          error:
+            fileKind === "video"
+              ? "Video is too large (max 50MB)."
+              : "File is too large (max 20MB).",
+        },
         { status: 400 }
       );
     }
@@ -79,9 +100,13 @@ export async function POST(request: Request) {
   //    keep the pasted text, and report the problem.
   let fileUrl: string | null = null;
   let fileWarning: string | null = null;
-  if (hasFile) {
+  const rawInputSource = fileKind === "video" ? RAW_INPUT_VIDEO_SOURCE : "upload";
+  if (uploadedFile && fileKind) {
     try {
-      const { signedUrl } = await uploadDealFile(dealId, file);
+      const { signedUrl } =
+        fileKind === "video"
+          ? await uploadDealVideo(dealId, uploadedFile)
+          : await uploadDealFile(dealId, uploadedFile);
       fileUrl = signedUrl;
     } catch (e) {
       fileWarning = e instanceof Error ? e.message : "File upload failed.";
@@ -91,7 +116,7 @@ export async function POST(request: Request) {
   // 3. Store the raw input (text and/or file URL) linked to the deal.
   const { error: rawError } = await admin.from("raw_inputs").insert({
     deal_id: dealId,
-    source: "upload",
+    source: rawInputSource,
     raw_text: rawText,
     file_url: fileUrl,
   });
@@ -112,6 +137,8 @@ export async function POST(request: Request) {
           deal_id: dealId,
           raw_text: rawText,
           file_url: fileUrl,
+          file_kind: fileKind,
+          source: rawInputSource,
         }),
         signal: AbortSignal.timeout(10_000),
       });

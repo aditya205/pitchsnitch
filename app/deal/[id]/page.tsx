@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { DealAnalysisStatus } from "@/components/deal/DealAnalysisStatus";
 import { DeleteDealButton } from "@/components/deal/DeleteDealButton";
 import { DownloadPdfButton } from "@/components/deal/DownloadPdfButton";
+import { EditDealFieldsButton } from "@/components/deal/EditDealFieldsButton";
 import { RawInputs } from "@/components/deal/RawInputs";
 import { ScoreRadar } from "@/components/deal/ScoreRadar";
 import { SetupNotice } from "@/components/SetupNotice";
@@ -11,6 +12,10 @@ import { Badge } from "@/components/ui/Badge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { cn } from "@/lib/cn";
 import { getDealDetail, getRawInputs } from "@/lib/deals";
+import {
+  formatLargeNumber,
+  formatRoundWithStage,
+} from "@/lib/formatLargeNumber";
 import {
   getDealProgress,
   SCORE_DIMENSIONS,
@@ -24,11 +29,11 @@ import {
 export const dynamic = "force-dynamic";
 
 const FIELD_LABELS: Record<string, string> = {
-  arr: "ARR",
+  arr: "Revenue",
   tam: "TAM",
   revenue: "Revenue",
-  growth: "Growth",
-  growth_rate: "Growth",
+  growth: "Growth rate",
+  growth_rate: "Growth rate",
   customers: "Customers",
   round: "Round",
   raising_amount: "Round",
@@ -59,7 +64,7 @@ const PROVENANCE_ALIASES: Record<string, string[]> = {
   valuation: ["valuation", "round.valuation"],
   prior_investors: ["prior_investors", "investors"],
   growth: ["growth", "growth_rate"],
-  revenue: ["revenue"],
+  revenue: ["revenue", "arr"],
   customers: ["customers"],
   tam: ["tam"],
   arr: ["arr"],
@@ -143,16 +148,24 @@ function getTractionDetails(deal: DealDetail) {
 }
 
 // Accepts bare hosts ("acme.com") as well as full URLs; the pipeline emits both.
-function getWebsiteLink(website: string | null) {
-  if (!website) return null;
-  const candidate = /^https?:\/\//i.test(website) ? website : `https://${website}`;
+function getExternalHref(value: string | null) {
+  if (!value) return null;
+  const candidate = /^https?:\/\//i.test(value) ? value : `https://${value}`;
   try {
     const url = new URL(candidate);
+    if (!["http:", "https:"].includes(url.protocol)) return null;
     if (!url.hostname.includes(".")) return null;
-    return { href: url.toString(), host: url.hostname.replace(/^www\./, "") };
+    return url.toString();
   } catch {
     return null;
   }
+}
+
+function getWebsiteLink(website: string | null) {
+  const href = getExternalHref(website);
+  if (!href) return null;
+  const url = new URL(href);
+  return { href, host: url.hostname.replace(/^www\./, "") };
 }
 
 /**
@@ -260,6 +273,8 @@ function DealSheet({
   // Never show the intake placeholder verbatim.
   const companyName =
     !rawName || /^processing/i.test(rawName) ? "New submission" : rawName;
+  const editableCompanyName =
+    rawName && !/^processing/i.test(rawName) ? rawName : null;
   const oneLiner = normalizeText(deal.one_liner);
   const sector = normalizeText(deal.sector);
   const stage = normalizeText(deal.stage);
@@ -270,6 +285,12 @@ function DealSheet({
   const redFlags = normalizeList(deal.red_flags);
   const roundDetails = getRoundDetails(deal);
   const tractionDetails = getTractionDetails(deal);
+  const revenue = tractionDetails.revenue ?? normalizeText(deal.arr);
+  const formattedRound = formatRoundWithStage(stage, roundDetails.raising_amount);
+  const formattedValuation = formatLargeNumber(roundDetails.valuation);
+  const formattedTam = formatLargeNumber(deal.tam);
+  const formattedRevenue = formatLargeNumber(revenue);
+  const revenueProvenance = provenanceFor(provenance, "revenue");
   const websiteLink = getWebsiteLink(normalizeText(deal.website));
   const founders = (deal.founders ?? [])
     .filter(hasFounderContent)
@@ -279,6 +300,25 @@ function DealSheet({
   const concerns = normalizeText(deal.concerns);
   const recommendation = normalizeText(deal.recommendation);
   const thesisFit = normalizeText(deal.thesis_fit);
+  const editableFields = {
+    company_name: editableCompanyName,
+    one_liner: oneLiner,
+    website: normalizeText(deal.website),
+    sector,
+    stage,
+    location,
+    founded_year: foundedYear,
+    tam: normalizeText(deal.tam),
+    arr: normalizeText(deal.arr),
+    use_of_funds: normalizeText(deal.use_of_funds),
+    recommendation,
+    thesis_fit: thesisFit,
+    concerns,
+    round: roundDetails,
+    traction: tractionDetails,
+    missing_fields: missing,
+    red_flags: redFlags,
+  };
 
   return (
     <article className="deal-sheet mx-auto w-full max-w-2xl">
@@ -325,6 +365,10 @@ function DealSheet({
               </div>
             )}
             <div className="no-print flex flex-wrap justify-end gap-2">
+              <EditDealFieldsButton
+                dealId={deal.id}
+                initialFields={editableFields}
+              />
               <DownloadPdfButton dealId={deal.id} />
               <DeleteDealButton dealId={deal.id} companyName={companyName} />
             </div>
@@ -357,17 +401,17 @@ function DealSheet({
           <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
             <Tile
               label="Round"
-              value={roundDetails.raising_amount}
+              value={formattedRound}
               prov={provenanceFor(provenance, "round")}
             />
             <Tile
               label="Valuation"
-              value={roundDetails.valuation}
+              value={formattedValuation}
               prov={provenanceFor(provenance, "valuation")}
             />
             <Tile
               label="TAM"
-              value={deal.tam}
+              value={formattedTam}
               prov={provenanceFor(provenance, "tam")}
             />
             <Tile
@@ -376,30 +420,19 @@ function DealSheet({
               prov={provenanceFor(provenance, "prior_investors")}
               className="col-span-full"
             />
-            <Tile
-              label="Use of funds"
-              value={deal.use_of_funds}
-              prov={provenanceFor(provenance, "use_of_funds")}
-              className="col-span-full"
-            />
           </dl>
         </Section>
 
         {/* Traction */}
         <Section title="Traction">
-          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4">
-            <Tile
-              label="ARR"
-              value={deal.arr}
-              prov={provenanceFor(provenance, "arr")}
-            />
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
             <Tile
               label="Revenue"
-              value={tractionDetails.revenue}
-              prov={provenanceFor(provenance, "revenue")}
+              value={formattedRevenue}
+              prov={revenueProvenance}
             />
             <Tile
-              label="Growth"
+              label="Growth rate"
               value={tractionDetails.growth_rate}
               prov={provenanceFor(provenance, "growth")}
             />
@@ -422,14 +455,28 @@ function DealSheet({
                 const founderName = normalizeText(founder.name) ?? "Founder details pending";
                 const founderRole = normalizeText(founder.role);
                 const founderBackground = normalizeText(founder.background);
-                const founderLinkedIn = normalizeText(founder.linkedin_url);
+                const founderLinkedInHref = getExternalHref(
+                  normalizeText(founder.linkedin_url)
+                );
 
                 return (
                   <div key={`${founderName}-${index}`}>
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      <span className="text-sm font-medium text-ink">
-                        {founderName}
-                      </span>
+                      {founderLinkedInHref ? (
+                        <a
+                          href={founderLinkedInHref}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Open ${founderName}'s LinkedIn profile`}
+                          className="text-sm font-medium text-ink underline-offset-2 transition-colors hover:text-accent hover:underline"
+                        >
+                          {founderName}
+                        </a>
+                      ) : (
+                        <span className="text-sm font-medium text-ink">
+                          {founderName}
+                        </span>
+                      )}
                       {founderRole && (
                         <span className="text-xs text-ink-tertiary">
                           {founderRole}
@@ -437,16 +484,6 @@ function DealSheet({
                       )}
                       {founder.source === "external" && (
                         <ExtTag confidence={founder.confidence} />
-                      )}
-                      {founderLinkedIn && (
-                        <a
-                          href={founderLinkedIn}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-accent hover:underline"
-                        >
-                          LinkedIn ↗
-                        </a>
                       )}
                     </div>
                     {founderBackground && (

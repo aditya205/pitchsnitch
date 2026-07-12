@@ -14,6 +14,7 @@ import {
   type Founder,
   type Scores,
 } from "./types";
+import { formatLargeNumber, formatRoundWithStage } from "./formatLargeNumber";
 
 const PAGE = { width: 595.28, height: 841.89 };
 const MARGIN = 42;
@@ -368,6 +369,14 @@ export async function generateDealPdf(deal: DealDetail): Promise<Uint8Array> {
   const oneLiner = text(deal.one_liner);
   const round = object(deal.round);
   const traction = object(deal.traction);
+  const revenue = text(traction.revenue) ?? text(deal.arr);
+  const formattedRound = formatRoundWithStage(
+    text(deal.stage),
+    text(round.raising_amount)
+  );
+  const formattedValuation = formatLargeNumber(text(round.valuation));
+  const formattedTam = formatLargeNumber(text(deal.tam));
+  const formattedRevenue = formatLargeNumber(revenue);
   const scores = scoresRow(deal.scores);
   const totalScore =
     typeof scores?.total === "number" ? scores.total : deal.total_score;
@@ -416,23 +425,21 @@ export async function generateDealPdf(deal: DealDetail): Promise<Uint8Array> {
 
   heading(state, "The ask");
   fieldGrid(state, [
-    { label: "Round", value: text(round.raising_amount) },
-    { label: "Valuation", value: text(round.valuation) },
-    { label: "TAM", value: text(deal.tam) },
+    { label: "Round", value: formattedRound },
+    { label: "Valuation", value: formattedValuation },
+    { label: "TAM", value: formattedTam },
     { label: "Prior investors", value: text(round.prior_investors) },
-    { label: "Use of funds", value: text(deal.use_of_funds) },
   ]);
 
   heading(state, "Traction");
   fieldGrid(
     state,
     [
-      { label: "ARR", value: text(deal.arr) },
-      { label: "Revenue", value: text(traction.revenue) },
-      { label: "Growth", value: text(traction.growth_rate) },
+      { label: "Revenue", value: formattedRevenue },
+      { label: "Growth rate", value: text(traction.growth_rate) },
       { label: "Customers", value: text(traction.customers) },
     ],
-    4
+    3
   );
 
   heading(state, "Team");
