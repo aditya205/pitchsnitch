@@ -389,10 +389,6 @@ function DealSheet({
             </p>
           </div>
         )}
-        <p className="mt-5 text-[11px] leading-relaxed text-ink-tertiary">
-          Fields tagged <ExtTag /> were enriched from the web — hover one for its
-          confidence. Untagged fields came from the founders.
-        </p>
       </header>
 
       <div className="mt-8 space-y-8">
