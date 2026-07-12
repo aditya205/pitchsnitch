@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 import { Pulse } from "@/components/ui/Pulse";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { cn } from "@/lib/cn";
@@ -22,7 +23,8 @@ export function DealCardContent({
   const title =
     !name || /^processing/i.test(name) ? "New submission" : name;
 
-  const meta = [deal.sector, deal.stage, deal.location].filter(Boolean).join(" · ");
+  const sector = deal.sector?.trim();
+  const stage = deal.stage?.trim();
 
   return (
     <Card className={cn("select-none", className)}>
@@ -56,8 +58,27 @@ export function DealCardContent({
         </p>
       )}
 
-      {settled && meta && (
-        <p className="mt-2 truncate text-[11px] text-ink-tertiary">{meta}</p>
+      {(sector || stage) && (
+        <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+          {sector && (
+            <Badge
+              tone="outline"
+              title={sector}
+              className="max-w-[11rem] truncate"
+            >
+              {sector}
+            </Badge>
+          )}
+          {stage && (
+            <Badge
+              tone="accent"
+              title={stage}
+              className="max-w-[9rem] truncate"
+            >
+              {stage}
+            </Badge>
+          )}
+        </div>
       )}
     </Card>
   );
