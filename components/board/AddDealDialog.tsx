@@ -4,13 +4,47 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Pulse } from "@/components/ui/Pulse";
+import { deleteDeal } from "@/lib/actions";
 import { cn } from "@/lib/cn";
+import { getSupabaseBrowser } from "@/lib/supabaseBrowser";
 
 type Status = "idle" | "submitting" | "success" | "error";
 type IntakeFileKind = "document" | "video";
 type SelectedIntakeFile = {
   file: File;
   kind: IntakeFileKind;
+};
+type SignedUpload = {
+  bucket: string;
+  deal_id: string;
+  file_path: string;
+  token: string;
+};
+type UploadedFileRef = {
+  dealId: string;
+  filePath: string;
+  kind: IntakeFileKind;
+};
+type CreateDealPayload = {
+  deal_id?: string;
+  raw_text?: string;
+  file_path?: string;
+  file_kind?: IntakeFileKind;
+};
+type CreateDealResult = {
+  warnings: string[];
+};
+type ApiErrorBody = {
+  error?: unknown;
+  warnings?: unknown;
+};
+type PossibleDirectUploadError = Error & {
+  dealId?: string;
+  directUpload?: true;
+};
+type DirectUploadError = Error & {
+  dealId: string;
+  directUpload: true;
 };
 
 const DOC_ACCEPT = ".pdf,.docx,.doc";
@@ -78,6 +112,38 @@ function fileKind(file: File): IntakeFileKind | null {
   }
 
   return null;
+}
+
+function apiErrorMessage(data: ApiErrorBody, fallback: string) {
+  return typeof data.error === "string" && data.error.trim()
+    ? data.error
+    : fallback;
+}
+
+function warningList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0
+  );
+}
+
+function messageFromError(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function directUploadError(message: string, dealId: string): DirectUploadError {
+  const error = new Error(message) as DirectUploadError;
+  error.dealId = dealId;
+  error.directUpload = true;
+  return error;
+}
+
+function isDirectUploadError(error: unknown): error is DirectUploadError {
+  return (
+    error instanceof Error &&
+    (error as PossibleDirectUploadError).directUpload === true &&
+    typeof (error as PossibleDirectUploadError).dealId === "string"
+  );
 }
 
 export function AddDealDialog({
@@ -221,29 +287,63 @@ export function AddDealDialog({
     setStatus("submitting");
     setMessage(null);
 
-    const body = new FormData();
-    if (text.trim()) body.set("raw_text", text.trim());
-    if (selectedFile) body.set("file", selectedFile.file);
+    const rawText = text.trim();
 
     try {
-      const res = await fetch("/api/deals/create", { method: "POST", body });
-      const data = await res.json();
+      const uploadedFile = selectedFile
+        ? await uploadSelectedFile(selectedFile)
+        : null;
 
-      if (!res.ok) {
-        setStatus("error");
-        setMessage(data.error ?? "Something went wrong. Please try again.");
-        return;
-      }
-
-      const warnings: string[] = Array.isArray(data.warnings) ? [...data.warnings] : [];
+      const result = await createDeal({
+        deal_id: uploadedFile?.dealId,
+        raw_text: rawText || undefined,
+        file_path: uploadedFile?.filePath,
+        file_kind: uploadedFile?.kind,
+      });
 
       setStatus("success");
-      if (warnings.length > 0) setMessage(warnings.join(" "));
+      if (result.warnings.length > 0) setMessage(result.warnings.join(" "));
       // Pull the new "Processing…" card into the board.
       router.refresh();
-    } catch {
+    } catch (error) {
+      if (isDirectUploadError(error) && rawText) {
+        try {
+          const result = await createDeal({
+            deal_id: error.dealId,
+            raw_text: rawText,
+          });
+          setStatus("success");
+          setMessage(
+            [
+              "File upload failed, so the deal was created from the pasted text only.",
+              ...result.warnings,
+            ].join(" ")
+          );
+          router.refresh();
+          return;
+        } catch (fallbackError) {
+          setStatus("error");
+          setMessage(
+            messageFromError(
+              fallbackError,
+              "Upload failed and the text-only fallback could not be saved."
+            )
+          );
+          return;
+        }
+      }
+
+      if (isDirectUploadError(error)) {
+        await deleteDeal(error.dealId).catch(() => undefined);
+      }
+
       setStatus("error");
-      setMessage("Network error. Your deal was not created — please try again.");
+      setMessage(
+        messageFromError(
+          error,
+          "Network error. Your deal was not created — please try again."
+        )
+      );
     }
   }
 
@@ -358,6 +458,73 @@ export function AddDealDialog({
       </div>
     </div>
   );
+}
+
+async function requestUploadUrl(selectedFile: SelectedIntakeFile): Promise<SignedUpload> {
+  const res = await fetch("/api/deals/upload-url", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      file_name: selectedFile.file.name,
+      file_type: selectedFile.file.type,
+      file_size: selectedFile.file.size,
+      file_kind: selectedFile.kind,
+    }),
+  });
+  const data = (await res.json()) as SignedUpload & ApiErrorBody;
+
+  if (!res.ok) {
+    throw new Error(apiErrorMessage(data, "Could not prepare the upload."));
+  }
+
+  return data;
+}
+
+async function uploadSelectedFile(
+  selectedFile: SelectedIntakeFile
+): Promise<UploadedFileRef> {
+  const signedUpload = await requestUploadUrl(selectedFile);
+
+  try {
+    const { error } = await getSupabaseBrowser()
+      .storage.from(signedUpload.bucket)
+      .uploadToSignedUrl(
+        signedUpload.file_path,
+        signedUpload.token,
+        selectedFile.file,
+        { contentType: selectedFile.file.type || undefined }
+      );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error) {
+    throw directUploadError(
+      `Upload failed: ${messageFromError(error, "unknown error")}`,
+      signedUpload.deal_id
+    );
+  }
+
+  return {
+    dealId: signedUpload.deal_id,
+    filePath: signedUpload.file_path,
+    kind: selectedFile.kind,
+  };
+}
+
+async function createDeal(payload: CreateDealPayload): Promise<CreateDealResult> {
+  const res = await fetch("/api/deals/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json()) as ApiErrorBody;
+
+  if (!res.ok) {
+    throw new Error(apiErrorMessage(data, "Something went wrong. Please try again."));
+  }
+
+  return { warnings: warningList(data.warnings) };
 }
 
 function FilePicker({

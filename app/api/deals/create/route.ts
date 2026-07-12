@@ -1,23 +1,103 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabaseAdmin";
-import { isAcceptedFileType, uploadDealFile } from "@/lib/storage";
-import {
-  isAcceptedVideoType,
-  MAX_VIDEO_BYTES,
-  uploadDealVideo,
-} from "@/lib/videoStorage";
+import { createSignedDealFileReadUrl } from "@/lib/storage";
 import { DEAL_PLACEHOLDER_NAME, RAW_INPUT_VIDEO_SOURCE } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type IntakeFileKind = "document" | "video";
 
-function intakeFileKind(file: File): IntakeFileKind | null {
-  if (isAcceptedFileType(file)) return "document";
-  if (isAcceptedVideoType(file)) return "video";
-  return null;
+type CreateDealBody = {
+  deal_id?: unknown;
+  raw_text?: unknown;
+  file_path?: unknown;
+  file_kind?: unknown;
+};
+
+function cleanString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function cleanFileKind(value: unknown): IntakeFileKind | null {
+  return value === "document" || value === "video" ? value : null;
+}
+
+function validStoragePath(path: string, dealId: string): boolean {
+  return (
+    path.startsWith(`${dealId}/`) &&
+    !path.startsWith("/") &&
+    !path.includes("\\") &&
+    !path.split("/").includes("..")
+  );
+}
+
+async function createPlaceholderDeal(): Promise<
+  | { ok: true; dealId: string }
+  | { ok: false; response: NextResponse }
+> {
+  const { data: deal, error } = await getSupabaseAdmin()
+    .from("deals")
+    .insert({
+      company_name: DEAL_PLACEHOLDER_NAME,
+      status: "new",
+      source_channel: "upload",
+    })
+    .select("id")
+    .single();
+
+  if (error || !deal) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: `Could not create deal: ${error?.message ?? "unknown"}` },
+        { status: 500 }
+      ),
+    };
+  }
+
+  return { ok: true, dealId: deal.id as string };
+}
+
+async function ensureDealExists(
+  dealId: string
+): Promise<{ ok: true } | { ok: false; response: NextResponse }> {
+  const { data, error } = await getSupabaseAdmin()
+    .from("deals")
+    .select("id")
+    .eq("id", dealId)
+    .maybeSingle();
+
+  if (error) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: error.message }, { status: 500 }),
+    };
+  }
+
+  if (!data) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Deal not found." }, { status: 404 }),
+    };
+  }
+
+  return { ok: true };
+}
+
+async function markProcessingError(dealId: string, message: string) {
+  const { error } = await getSupabaseAdmin()
+    .from("deals")
+    .update({ processing_error: message })
+    .eq("id", dealId);
+
+  if (error) {
+    console.error(
+      `[deals/create] could not record processing_error on ${dealId}:`,
+      error.message
+    );
+  }
 }
 
 export async function POST(request: Request) {
@@ -28,101 +108,89 @@ export async function POST(request: Request) {
     );
   }
 
-  let form: FormData;
+  let body: CreateDealBody;
   try {
-    form = await request.formData();
+    body = (await request.json()) as CreateDealBody;
   } catch {
-    return NextResponse.json(
-      { error: "Expected multipart/form-data." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: "Expected JSON." }, { status: 400 });
   }
 
-  const rawText = (form.get("raw_text") as string | null)?.trim() || null;
-  const file = form.get("file");
-  const uploadedFile = file instanceof File && file.size > 0 ? file : null;
-  const fileKind = uploadedFile ? intakeFileKind(uploadedFile) : null;
+  const rawText = cleanString(body.raw_text);
+  const requestedDealId = cleanString(body.deal_id);
+  const filePath = cleanString(body.file_path);
+  const fileKind = filePath ? cleanFileKind(body.file_kind) : null;
 
-  // At least one of file or text is required.
-  if (!rawText && !uploadedFile) {
+  if (!rawText && !filePath) {
     return NextResponse.json(
       { error: "Provide a file or some text to create a deal." },
       { status: 400 }
     );
   }
 
-  if (uploadedFile) {
-    if (!fileKind) {
-      return NextResponse.json(
-        { error: "Unsupported file type. Upload a PDF, DOCX, DOC, MP4, or MOV." },
-        { status: 400 }
-      );
-    }
-
-    const maxBytes = fileKind === "video" ? MAX_VIDEO_BYTES : MAX_FILE_BYTES;
-    if (uploadedFile.size > maxBytes) {
-      return NextResponse.json(
-        {
-          error:
-            fileKind === "video"
-              ? "Video is too large (max 50MB)."
-              : "File is too large (max 20MB).",
-        },
-        { status: 400 }
-      );
-    }
+  if (requestedDealId && !UUID.test(requestedDealId)) {
+    return NextResponse.json({ error: "Invalid deal id." }, { status: 400 });
   }
 
-  const admin = getSupabaseAdmin();
-
-  // 1. Create the deal row FIRST, so the submission is never lost even if a
-  //    later step (upload, webhook) fails.
-  const { data: deal, error: dealError } = await admin
-    .from("deals")
-    .insert({
-      company_name: DEAL_PLACEHOLDER_NAME,
-      status: "new",
-      source_channel: "upload",
-    })
-    .select("id")
-    .single();
-
-  if (dealError || !deal) {
+  if (filePath && !requestedDealId) {
     return NextResponse.json(
-      { error: `Could not create deal: ${dealError?.message ?? "unknown"}` },
-      { status: 500 }
+      { error: "Uploaded files must include a deal id." },
+      { status: 400 }
     );
   }
 
-  const dealId = deal.id as string;
+  if (filePath && !fileKind) {
+    return NextResponse.json(
+      { error: "Uploaded files must include a valid file kind." },
+      { status: 400 }
+    );
+  }
 
-  // 2. Upload the file (if any). A failure here is non-fatal: keep the deal,
-  //    keep the pasted text, and report the problem.
+  let dealId: string;
+  if (requestedDealId) {
+    const dealResult = await ensureDealExists(requestedDealId);
+    if (!dealResult.ok) {
+      return dealResult.response;
+    }
+    dealId = requestedDealId;
+  } else {
+    const dealResult = await createPlaceholderDeal();
+    if (!dealResult.ok) {
+      return dealResult.response;
+    }
+    dealId = dealResult.dealId;
+  }
+
+  if (filePath && !validStoragePath(filePath, dealId)) {
+    return NextResponse.json(
+      { error: "Uploaded file path does not belong to this deal." },
+      { status: 400 }
+    );
+  }
+
   let fileUrl: string | null = null;
   let fileWarning: string | null = null;
-  const rawInputSource = fileKind === "video" ? RAW_INPUT_VIDEO_SOURCE : "upload";
-  if (uploadedFile && fileKind) {
+
+  if (filePath) {
     try {
-      const { signedUrl } =
-        fileKind === "video"
-          ? await uploadDealVideo(dealId, uploadedFile)
-          : await uploadDealFile(dealId, uploadedFile);
-      fileUrl = signedUrl;
-    } catch (e) {
-      fileWarning = e instanceof Error ? e.message : "File upload failed.";
+      fileUrl = await createSignedDealFileReadUrl(filePath);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not sign file URL.";
+      if (!rawText) {
+        return NextResponse.json({ error: message }, { status: 502 });
+      }
+      fileWarning = message;
     }
   }
 
-  // 3. Store the raw input (text and/or file URL) linked to the deal.
-  const { error: rawError } = await admin.from("raw_inputs").insert({
+  const rawInputSource = fileKind === "video" ? RAW_INPUT_VIDEO_SOURCE : "upload";
+  const { error: rawError } = await getSupabaseAdmin().from("raw_inputs").insert({
     deal_id: dealId,
     source: rawInputSource,
     raw_text: rawText,
     file_url: fileUrl,
   });
 
-  // 4. Kick off the pipeline via the n8n webhook. Failure is non-fatal —
-  //    the deal and raw input already exist and can be reprocessed.
   let webhookWarning: string | null = null;
   const webhookUrl = process.env.N8N_WEBHOOK_URL;
   if (!webhookUrl || webhookUrl.startsWith("your-")) {
@@ -142,6 +210,7 @@ export async function POST(request: Request) {
         }),
         signal: AbortSignal.timeout(10_000),
       });
+
       if (!res.ok) {
         const hint =
           res.status === 404
@@ -151,28 +220,16 @@ export async function POST(request: Request) {
           `The deal was saved, but the analysis pipeline rejected the request: ` +
           `POST ${webhookUrl} returned ${res.status} ${res.statusText}.${hint}`;
       }
-    } catch (e) {
-      const reason = e instanceof Error ? e.message : "unknown error";
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : "unknown error";
       webhookWarning =
         `The deal was saved, but the analysis pipeline could not be reached: ` +
         `POST ${webhookUrl} failed (${reason}).`;
     }
   }
 
-  // 5. Record why analysis won't complete, so the board and deal sheet can stop
-  //    waiting and show the reason instead of an endless "Analyzing…".
-  //    Best-effort: pre-0006 databases have no processing_error column.
   if (webhookWarning) {
-    const { error: markError } = await admin
-      .from("deals")
-      .update({ processing_error: webhookWarning })
-      .eq("id", dealId);
-    if (markError) {
-      console.error(
-        `[deals/create] could not record processing_error on ${dealId}:`,
-        markError.message
-      );
-    }
+    await markProcessingError(dealId, webhookWarning);
   }
 
   const warnings = [
@@ -181,8 +238,5 @@ export async function POST(request: Request) {
     webhookWarning,
   ].filter(Boolean);
 
-  return NextResponse.json(
-    { deal_id: dealId, warnings },
-    { status: 201 }
-  );
+  return NextResponse.json({ deal_id: dealId, warnings }, { status: 201 });
 }

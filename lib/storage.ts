@@ -3,6 +3,7 @@ import { getSupabaseAdmin } from "./supabaseAdmin";
 // SERVER-ONLY. Uploads run through the service-role client.
 
 export const DEAL_FILES_BUCKET = "deal-files";
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 
 const ACCEPTED_MIME = new Set([
   "application/pdf",
@@ -26,7 +27,7 @@ export async function ensureDealFilesBucket(): Promise<void> {
   const { error } = await admin.storage.createBucket(DEAL_FILES_BUCKET, {
     public: false,
     allowedMimeTypes: Array.from(ACCEPTED_MIME),
-    fileSizeLimit: "20MB",
+    fileSizeLimit: MAX_DOCUMENT_BYTES,
   });
 
   // Tolerate the race where a concurrent request created it first.
@@ -42,6 +43,56 @@ export function isAcceptedFileType(file: File): boolean {
   return /\.(pdf|docx?)$/i.test(file.name);
 }
 
+export function isAcceptedFileMetadata(
+  fileName: string,
+  contentType: string | null | undefined
+): boolean {
+  if (contentType && ACCEPTED_MIME.has(contentType)) return true;
+  return /\.(pdf|docx?)$/i.test(fileName);
+}
+
+export function safeStorageFileName(fileName: string): string {
+  const safeName = fileName.trim().replace(/[^a-zA-Z0-9._-]/g, "_");
+  return safeName || "upload";
+}
+
+export function buildDealFilePath(dealId: string, fileName: string): string {
+  return `${dealId}/${Date.now()}-${safeStorageFileName(fileName)}`;
+}
+
+export async function createSignedDealFileUploadUrl(
+  dealId: string,
+  fileName: string
+): Promise<{ path: string; token: string }> {
+  await ensureDealFilesBucket();
+  const path = buildDealFilePath(dealId, fileName);
+
+  const { data, error } = await getSupabaseAdmin()
+    .storage.from(DEAL_FILES_BUCKET)
+    .createSignedUploadUrl(path);
+
+  if (error || !data) {
+    throw new Error(`Could not sign upload URL: ${error?.message ?? "unknown"}`);
+  }
+
+  return { path: data.path, token: data.token };
+}
+
+export async function createSignedDealFileReadUrl(
+  path: string,
+  expiresInSeconds = 60 * 60 * 24 * 7
+): Promise<string> {
+  const { data, error } = await getSupabaseAdmin()
+    .storage.from(DEAL_FILES_BUCKET)
+    .createSignedUrl(path, expiresInSeconds);
+
+  if (error || !data) {
+    throw new Error(`Could not sign file URL: ${error?.message ?? "unknown"}`);
+  }
+
+  return data.signedUrl;
+}
+
 /**
  * Upload a deal file to a per-deal path and return a signed URL the pipeline
  * can fetch. The bucket is private, so we sign rather than expose a public URL.
@@ -53,8 +104,7 @@ export async function uploadDealFile(
   await ensureDealFilesBucket();
   const admin = getSupabaseAdmin();
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${dealId}/${Date.now()}-${safeName}`;
+  const path = buildDealFilePath(dealId, file.name);
 
   const { error: uploadError } = await admin.storage
     .from(DEAL_FILES_BUCKET)
@@ -64,16 +114,7 @@ export async function uploadDealFile(
     throw new Error(`File upload failed: ${uploadError.message}`);
   }
 
-  // Signed URL valid for 7 days — long enough for the pipeline to process.
-  const { data, error: signError } = await admin.storage
-    .from(DEAL_FILES_BUCKET)
-    .createSignedUrl(path, 60 * 60 * 24 * 7);
-
-  if (signError || !data) {
-    throw new Error(`Could not sign file URL: ${signError?.message ?? "unknown"}`);
-  }
-
-  return { path, signedUrl: data.signedUrl };
+  return { path, signedUrl: await createSignedDealFileReadUrl(path) };
 }
 
 async function listStoredFiles(prefix: string): Promise<string[]> {

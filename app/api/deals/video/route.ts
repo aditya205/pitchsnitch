@@ -1,22 +1,36 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin, isSupabaseConfigured } from "@/lib/supabaseAdmin";
-import {
-  isAcceptedVideoType,
-  MAX_VIDEO_BYTES,
-  uploadDealVideo,
-} from "@/lib/videoStorage";
+import { createSignedDealFileReadUrl } from "@/lib/storage";
 import { RAW_INPUT_VIDEO_SOURCE } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+type AttachVideoBody = {
+  deal_id?: unknown;
+  file_path?: unknown;
+};
+
+function cleanString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function validStoragePath(path: string, dealId: string): boolean {
+  return (
+    path.startsWith(`${dealId}/`) &&
+    !path.startsWith("/") &&
+    !path.includes("\\") &&
+    !path.split("/").includes("..")
+  );
+}
+
 /**
- * Attach a pitch video to an existing deal.
+ * Attach an already-uploaded pitch video to an existing deal.
  *
- * Kept for compatibility with any older clients that already have a deal ID.
- * New Add Deal submissions send their single selected file through
- * /api/deals/create so the analysis webhook receives file_url immediately.
+ * Large video bytes must be uploaded directly to Supabase Storage with a signed
+ * upload URL. This route only receives JSON metadata, keeping it under Vercel's
+ * function payload limits.
  */
 export async function POST(request: Request) {
   if (!isSupabaseConfigured()) {
@@ -26,41 +40,30 @@ export async function POST(request: Request) {
     );
   }
 
-  let form: FormData;
+  let body: AttachVideoBody;
   try {
-    form = await request.formData();
+    body = (await request.json()) as AttachVideoBody;
   } catch {
     return NextResponse.json(
-      { error: "Expected multipart/form-data." },
+      { error: "Expected JSON with deal_id and file_path." },
       { status: 400 }
     );
   }
 
-  const dealId = (form.get("deal_id") as string | null)?.trim();
-  const video = form.get("video");
+  const dealId = cleanString(body.deal_id);
+  const filePath = cleanString(body.file_path);
 
   if (!dealId || !UUID.test(dealId)) {
     return NextResponse.json({ error: "Missing or invalid deal_id." }, { status: 400 });
   }
-  if (!(video instanceof File) || video.size === 0) {
-    return NextResponse.json({ error: "No video file provided." }, { status: 400 });
-  }
-  if (!isAcceptedVideoType(video)) {
+  if (!filePath || !validStoragePath(filePath, dealId)) {
     return NextResponse.json(
-      { error: "Unsupported video type. Upload an MP4 or MOV." },
-      { status: 400 }
-    );
-  }
-  if (video.size > MAX_VIDEO_BYTES) {
-    return NextResponse.json(
-      { error: `Video is too large (max ${MAX_VIDEO_BYTES / 1024 / 1024}MB).` },
+      { error: "Missing or invalid file_path for this deal." },
       { status: 400 }
     );
   }
 
   const admin = getSupabaseAdmin();
-
-  // Don't create orphaned storage objects for a deal that doesn't exist.
   const { data: deal, error: lookupError } = await admin
     .from("deals")
     .select("id")
@@ -76,15 +79,14 @@ export async function POST(request: Request) {
 
   let signedUrl: string;
   try {
-    ({ signedUrl } = await uploadDealVideo(dealId, video));
-  } catch (e) {
+    signedUrl = await createSignedDealFileReadUrl(filePath);
+  } catch (error) {
     return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Video upload failed." },
+      { error: error instanceof Error ? error.message : "Could not sign video URL." },
       { status: 502 }
     );
   }
 
-  // The pipeline will pick this row up and transcribe file_url later.
   const { error: rawError } = await admin.from("raw_inputs").insert({
     deal_id: dealId,
     source: RAW_INPUT_VIDEO_SOURCE,

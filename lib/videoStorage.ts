@@ -1,4 +1,9 @@
-import { DEAL_FILES_BUCKET, ensureDealFilesBucket } from "./storage";
+import {
+  createSignedDealFileReadUrl,
+  DEAL_FILES_BUCKET,
+  ensureDealFilesBucket,
+  safeStorageFileName,
+} from "./storage";
 import { getSupabaseAdmin } from "./supabaseAdmin";
 
 // SERVER-ONLY. Uploads run through the service-role client.
@@ -68,6 +73,38 @@ export function isAcceptedVideoType(file: File): boolean {
   return /\.(mp4|mov)$/i.test(file.name);
 }
 
+export function isAcceptedVideoMetadata(
+  fileName: string,
+  contentType: string | null | undefined
+): boolean {
+  if (contentType && (ACCEPTED_VIDEO_MIME as readonly string[]).includes(contentType)) {
+    return true;
+  }
+  return /\.(mp4|mov)$/i.test(fileName);
+}
+
+export function buildDealVideoPath(dealId: string, fileName: string): string {
+  return `${dealId}/video/${Date.now()}-${safeStorageFileName(fileName)}`;
+}
+
+export async function createSignedDealVideoUploadUrl(
+  dealId: string,
+  fileName: string
+): Promise<{ path: string; token: string }> {
+  await ensureVideoUploadsAllowed();
+  const path = buildDealVideoPath(dealId, fileName);
+
+  const { data, error } = await getSupabaseAdmin()
+    .storage.from(DEAL_FILES_BUCKET)
+    .createSignedUploadUrl(path);
+
+  if (error || !data) {
+    throw new Error(`Could not sign video upload URL: ${error?.message ?? "unknown"}`);
+  }
+
+  return { path: data.path, token: data.token };
+}
+
 /**
  * Upload a pitch video under the deal's folder and return a signed URL the
  * transcription step can fetch. The bucket is private, so we sign it.
@@ -79,8 +116,7 @@ export async function uploadDealVideo(
   await ensureVideoUploadsAllowed();
   const admin = getSupabaseAdmin();
 
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${dealId}/video/${Date.now()}-${safeName}`;
+  const path = buildDealVideoPath(dealId, file.name);
 
   const { error: uploadError } = await admin.storage
     .from(DEAL_FILES_BUCKET)
@@ -90,14 +126,5 @@ export async function uploadDealVideo(
     throw new Error(`Video upload failed: ${uploadError.message}`);
   }
 
-  // Signed URL valid for 7 days — long enough for the pipeline to transcribe.
-  const { data, error: signError } = await admin.storage
-    .from(DEAL_FILES_BUCKET)
-    .createSignedUrl(path, 60 * 60 * 24 * 7);
-
-  if (signError || !data) {
-    throw new Error(`Could not sign video URL: ${signError?.message ?? "unknown"}`);
-  }
-
-  return { path, signedUrl: data.signedUrl };
+  return { path, signedUrl: await createSignedDealFileReadUrl(path) };
 }
