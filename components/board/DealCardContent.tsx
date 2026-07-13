@@ -5,6 +5,11 @@ import { ScoreRing } from "@/components/ui/ScoreRing";
 import { cn } from "@/lib/cn";
 import { getDealProgress, type Deal, type DealProgress } from "@/lib/types";
 
+function firstTag(value: string | null | undefined): string | null {
+  const tag = value?.split(/[,/]/)[0]?.trim();
+  return tag || null;
+}
+
 // Pure presentation — shared by the draggable card, the drag overlay, and /design.
 // `progress` is passed in when the board knows better than the row does (e.g. a
 // client-side timeout); otherwise it's derived from the deal.
@@ -23,8 +28,8 @@ export function DealCardContent({
   const title =
     !name || /^processing/i.test(name) ? "New submission" : name;
 
-  const sector = deal.sector?.trim();
-  const stage = deal.stage?.trim();
+  const sector = firstTag(deal.sector);
+  const stage = firstTag(deal.stage);
 
   return (
     <Card className={cn("select-none", className)}>
