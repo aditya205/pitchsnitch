@@ -470,7 +470,11 @@ export async function generateDealPdf(deal: DealDetail): Promise<Uint8Array> {
   }
 
   heading(state, "Why it fits");
-  paragraph(state, text(deal.thesis_fit), "No thesis rationale yet.");
+  paragraph(
+    state,
+    text(deal.why_it_fits) ?? text(deal.thesis_fit),
+    "No thesis rationale yet."
+  );
 
   heading(state, "Score breakdown");
   drawScoreBars(state, scores, totalScore);

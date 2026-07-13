@@ -54,7 +54,7 @@ const deals = [
     ],
     use_of_funds:
       "Hire 5 grid-solutions engineers, finish NERC CIP readiness, and convert 4 pilots into annual contracts.",
-    thesis_fit:
+    why_it_fits:
       "Strong fit with the fund's AI-native infrastructure thesis: high-stakes industrial workflows, proprietary operational data, and a wedge where software can become the daily system of action.",
     concerns:
       "The product is mission-critical, so enterprise security and reliability diligence need to be deeper than a normal seed SaaS process.",
@@ -96,7 +96,7 @@ const deals = [
     ],
     use_of_funds:
       "Expand the evidence graph, launch EU data residency, and hire 4 enterprise AEs.",
-    thesis_fit:
+    why_it_fits:
       "Fits the Together AI application layer: compliance teams have expensive manual workflows, strong audit trails, and clear willingness to pay for trustworthy automation.",
     concerns:
       "Competitive pressure is real; diligence should confirm retention by product depth rather than compliance-budget expansion alone.",
@@ -138,7 +138,7 @@ const deals = [
     ],
     use_of_funds:
       "Complete Epic and Athenahealth integrations, expand the clinical QA team, and support 120 additional clinic deployments.",
-    thesis_fit:
+    why_it_fits:
       "Excellent AI-native workflow fit: repetitive administrative labor, measurable ROI, high-frequency usage, and a path into clinical operations data.",
     concerns:
       "Need to verify that time savings persist after onboarding and that specialty clinics are not over-served by horizontal ambient scribe vendors.",

@@ -12,7 +12,7 @@ delete from deals where id in (
 
 insert into deals
   (id, company_name, one_liner, website, sector, stage, location, founded_year, tam, arr,
-   round, traction, red_flags, use_of_funds, thesis_fit, concerns,
+   round, traction, red_flags, use_of_funds, why_it_fits, concerns,
    status, total_score, recommendation, source_channel, missing_fields, created_at)
 values
   (

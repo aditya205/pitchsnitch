@@ -168,6 +168,18 @@ function getWebsiteLink(website: string | null) {
   return { href, host: url.hostname.replace(/^www\./, "") };
 }
 
+function getLinkedInHref(value: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim().replace(/^@/, "");
+  if (!trimmed) return null;
+
+  const external = getExternalHref(trimmed);
+  if (external) return external;
+
+  const path = trimmed.startsWith("in/") ? trimmed : `in/${trimmed}`;
+  return `https://www.linkedin.com/${path}`;
+}
+
 /**
  * `founders` has no created_at, so the query falls back to ordering by uuid —
  * i.e. randomly. A partner expects the CEO first. Rank by role, keeping the
@@ -299,7 +311,7 @@ function DealSheet({
     .map(({ founder }) => founder);
   const concerns = normalizeText(deal.concerns);
   const recommendation = normalizeText(deal.recommendation);
-  const thesisFit = normalizeText(deal.thesis_fit);
+  const whyItFits = normalizeText(deal.why_it_fits) ?? normalizeText(deal.thesis_fit);
   const editableFields = {
     company_name: editableCompanyName,
     one_liner: oneLiner,
@@ -312,7 +324,8 @@ function DealSheet({
     arr: normalizeText(deal.arr),
     use_of_funds: normalizeText(deal.use_of_funds),
     recommendation,
-    thesis_fit: thesisFit,
+    why_it_fits: whyItFits,
+    thesis_fit: normalizeText(deal.thesis_fit),
     concerns,
     round: roundDetails,
     traction: tractionDetails,
@@ -451,27 +464,27 @@ function DealSheet({
                 const founderName = normalizeText(founder.name) ?? "Founder details pending";
                 const founderRole = normalizeText(founder.role);
                 const founderBackground = normalizeText(founder.background);
-                const founderLinkedInHref = getExternalHref(
+                const founderLinkedInHref = getLinkedInHref(
                   normalizeText(founder.linkedin_url)
                 );
 
                 return (
                   <div key={`${founderName}-${index}`}>
                     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                      {founderLinkedInHref ? (
+                      <span className="text-sm font-medium text-ink">
+                        {founderName}
+                      </span>
+                      {founderLinkedInHref && (
                         <a
                           href={founderLinkedInHref}
                           target="_blank"
                           rel="noopener noreferrer"
                           aria-label={`Open ${founderName}'s LinkedIn profile`}
-                          className="text-sm font-medium text-ink underline-offset-2 transition-colors hover:text-accent hover:underline"
+                          title={`Open ${founderName}'s LinkedIn profile`}
+                          className="inline-flex size-4 items-center justify-center rounded-[3px] transition-opacity hover:opacity-80"
                         >
-                          {founderName}
+                          <LinkedInIcon />
                         </a>
-                      ) : (
-                        <span className="text-sm font-medium text-ink">
-                          {founderName}
-                        </span>
                       )}
                       {founderRole && (
                         <span className="text-xs text-ink-tertiary">
@@ -496,9 +509,9 @@ function DealSheet({
 
         {/* Thesis */}
         <Section title="Why it fits">
-          {thesisFit ? (
+          {whyItFits ? (
             <p className="text-sm leading-relaxed text-ink-secondary">
-              {thesisFit}
+              {whyItFits}
             </p>
           ) : (
             <Empty>No thesis rationale yet.</Empty>
@@ -755,6 +768,25 @@ function SubHeading({ children }: { children: React.ReactNode }) {
     <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-secondary">
       {children}
     </p>
+  );
+}
+
+function LinkedInIcon() {
+  return (
+    <svg
+      viewBox="0 0 72 72"
+      aria-hidden="true"
+      className="size-4"
+    >
+      <path
+        fill="#007EBB"
+        d="M8 0h56a8 8 0 0 1 8 8v56a8 8 0 0 1-8 8H8a8 8 0 0 1-8-8V8a8 8 0 0 1 8-8Z"
+      />
+      <path
+        fill="#fff"
+        d="M62 62H51.3V43.8c0-5-1.9-7.8-5.8-7.8-4.3 0-6.6 2.9-6.6 7.8V62H28.6V27.3h10.3V32s3.1-5.7 10.5-5.7S62 30.8 62 40.1V62ZM16.3 22.8A6.4 6.4 0 1 1 16.3 10a6.4 6.4 0 0 1 0 12.8ZM11 62h10.7V27.3H11V62Z"
+      />
+    </svg>
   );
 }
 

@@ -24,6 +24,7 @@ export type EditableDealFields = {
   arr?: string | null;
   use_of_funds?: string | null;
   recommendation?: string | null;
+  why_it_fits?: string | null;
   thesis_fit?: string | null;
   concerns?: string | null;
   round?: RoundDetails | null;
@@ -46,7 +47,7 @@ const TEXT_FIELDS = [
   "arr",
   "use_of_funds",
   "recommendation",
-  "thesis_fit",
+  "why_it_fits",
   "concerns",
 ] as const;
 

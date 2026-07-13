@@ -25,7 +25,7 @@ type Draft = {
   growth_rate: string;
   customers: string;
   recommendation: string;
-  thesis_fit: string;
+  why_it_fits: string;
   concerns: string;
   missing_fields: string;
   red_flags: string;
@@ -63,7 +63,7 @@ function toDraft(fields: EditableDealFields): Draft {
     growth_rate: text(fields.traction?.growth_rate),
     customers: text(fields.traction?.customers),
     recommendation: text(fields.recommendation),
-    thesis_fit: text(fields.thesis_fit),
+    why_it_fits: text(fields.why_it_fits ?? fields.thesis_fit),
     concerns: text(fields.concerns),
     missing_fields: (fields.missing_fields ?? []).join("\n"),
     red_flags: (fields.red_flags ?? []).join("\n"),
@@ -96,7 +96,7 @@ function toPayload(draft: Draft): EditableDealFields {
     tam: draft.tam,
     arr: draft.revenue,
     recommendation: draft.recommendation,
-    thesis_fit: draft.thesis_fit,
+    why_it_fits: draft.why_it_fits,
     concerns: draft.concerns,
     round: {
       raising_amount: draft.raising_amount,
@@ -427,8 +427,8 @@ export function EditDealFieldsButton({
                   />
                   <Field
                     label="Why it fits"
-                    value={draft.thesis_fit}
-                    onChange={(value) => updateField("thesis_fit", value)}
+                    value={draft.why_it_fits}
+                    onChange={(value) => updateField("why_it_fits", value)}
                     multiline
                     className="sm:col-span-2"
                   />

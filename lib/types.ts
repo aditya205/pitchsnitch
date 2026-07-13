@@ -72,6 +72,8 @@ export interface Deal {
   status: DealStatus;
   total_score?: number;
   recommendation?: string | null;
+  why_it_fits?: string | null;
+  /** Legacy narrative field; prefer why_it_fits for one-pager copy. */
   thesis_fit?: string | null;
   concerns?: string | null;
   source_channel?: string | null;
