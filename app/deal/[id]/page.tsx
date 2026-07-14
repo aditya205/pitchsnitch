@@ -193,6 +193,26 @@ function founderRank(founder: Founder): number {
   return hit === -1 ? ROLE_RANK.length : hit;
 }
 
+// Co-investors are ordered by funding round, earliest first, so the cap table
+// reads chronologically. Unknown/missing rounds sink to the bottom.
+const ROUND_ORDER = [
+  /pre-?seed/i,
+  /\bseed\b/i,
+  /series\s*a/i,
+  /series\s*b/i,
+  /series\s*c/i,
+  /series\s*d/i,
+  /series\s*e/i,
+  /series\s*f/i,
+  /growth|late|pre-?ipo/i,
+];
+
+function roundRank(round: string | null): number {
+  if (!round) return ROUND_ORDER.length + 1;
+  const hit = ROUND_ORDER.findIndex((pattern) => pattern.test(round));
+  return hit === -1 ? ROUND_ORDER.length : hit;
+}
+
 // The pipeline emits a template founder row with every field null. Don't render it.
 function hasFounderContent(founder: Founder): boolean {
   return Boolean(
@@ -309,6 +329,25 @@ function DealSheet({
     .map((founder, index) => ({ founder, index }))
     .sort((a, b) => founderRank(a.founder) - founderRank(b.founder) || a.index - b.index)
     .map(({ founder }) => founder);
+  const coInvestors = (deal.co_investors ?? [])
+    .map((investor): { name: string; type: string | null; round: string | null } | null => {
+      const name = normalizeText(investor.name);
+      // A pipeline bug once wrote a whole serialized payload into name; never
+      // render a value that looks like a JSON blob.
+      if (!name || /^[[{]/.test(name)) return null;
+      return {
+        name,
+        type: normalizeText(investor.type),
+        round: normalizeText(investor.round),
+      };
+    })
+    .filter((investor): investor is NonNullable<typeof investor> => investor !== null)
+    .map((investor, index) => ({ investor, index }))
+    .sort(
+      (a, b) =>
+        roundRank(a.investor.round) - roundRank(b.investor.round) || a.index - b.index
+    )
+    .map(({ investor }) => investor);
   const concerns = normalizeText(deal.concerns);
   const recommendation = normalizeText(deal.recommendation);
   const whyItFits = normalizeText(deal.why_it_fits) ?? normalizeText(deal.thesis_fit);
@@ -430,6 +469,33 @@ function DealSheet({
               className="col-span-full"
             />
           </dl>
+
+          {coInvestors.length > 0 && (
+            <div className="mt-5">
+              <SubHeading>
+                Co-investors <ExtTag confidence={null} />
+              </SubHeading>
+              <ul className="mt-2 space-y-1.5">
+                {coInvestors.map((investor, index) => (
+                  <li
+                    key={`${investor.name}-${index}`}
+                    className="flex items-baseline gap-2 text-sm text-ink"
+                  >
+                    <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-line-strong" />
+                    <span className="min-w-0">
+                      <span className="font-medium">{investor.name}</span>
+                      {investor.round && (
+                        <span className="text-ink-secondary"> — {investor.round}</span>
+                      )}
+                      {investor.type && (
+                        <span className="text-ink-tertiary"> ({investor.type})</span>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </Section>
 
         {/* Traction */}

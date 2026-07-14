@@ -47,7 +47,7 @@ export const getDealDetail = cache(async function getDealDetail(
   }
   const { data, error } = await getSupabaseAdmin()
     .from("deals")
-    .select("*, founders(*), extracted_fields(*), external_signals(*), scores(*)")
+    .select("*, founders(*), extracted_fields(*), external_signals(*), scores(*), co_investors(*)")
     .eq("id", id)
     .order("id", { referencedTable: "founders", ascending: true })
     .order("signal_date", { referencedTable: "external_signals", ascending: false })

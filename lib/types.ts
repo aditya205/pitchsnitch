@@ -45,6 +45,16 @@ export interface Founder {
   confidence?: number;
 }
 
+/** A co-investor on the round. `source` is 'external' — web-sourced, not founder-supplied. */
+export interface CoInvestor {
+  name?: string | null;
+  /** "lead" | "existing" — the investor's role on the round. */
+  type?: string | null;
+  round?: string | null;
+  source?: SourceTag | null;
+  confidence?: number | null;
+}
+
 export interface ExternalSignal {
   title: string;
   summary?: string;
@@ -164,6 +174,7 @@ export interface DealDetail extends Deal {
   founders: Founder[];
   extracted_fields: ExtractedField[];
   external_signals: ExternalSignal[];
+  co_investors: CoInvestor[];
   // PostgREST embeds a one-to-many relation as an array even when unique.
   scores: Scores[] | Scores | null;
 }
