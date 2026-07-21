@@ -187,32 +187,51 @@ function fieldGrid(
   const gap = 18;
   const columnWidth = (CONTENT_WIDTH - gap * (columns - 1)) / columns;
   const rows = Math.ceil(fields.length / columns);
-  ensureSpace(state, rows * 50);
+  const labelSize = 8;
+  const valueSize = 10.5;
+  const valueLineHeight = 13;
+  const valueTopOffset = 17;
+  const minRowHeight = 50;
 
   for (let row = 0; row < rows; row += 1) {
+    const rowFields = fields.slice(row * columns, row * columns + columns);
+    const cells = rowFields.map((field) => {
+      const value = field.value || "-";
+      const font = field.value ? state.fonts.sansBold : state.fonts.sans;
+      const lines = wrap(value, font, valueSize, columnWidth);
+      return { field, value, font, lines };
+    });
+    const rowHeight = Math.max(
+      minRowHeight,
+      ...cells.map(
+        (cell) => valueTopOffset + cell.lines.length * valueLineHeight + 4
+      )
+    );
+
+    ensureSpace(state, rowHeight);
     const rowY = state.y;
-    for (let col = 0; col < columns; col += 1) {
-      const field = fields[row * columns + col];
-      if (!field) continue;
+    for (let col = 0; col < cells.length; col += 1) {
+      const cell = cells[col];
       const x = MARGIN + col * (columnWidth + gap);
-      state.page.drawText(field.label.toUpperCase(), {
+      state.page.drawText(cell.field.label.toUpperCase(), {
         x,
         y: rowY,
-        size: 8,
+        size: labelSize,
         font: state.fonts.sansBold,
         color: colors.tertiary,
       });
-      drawTextBlock(state, field.value || "-", {
-        x,
-        y: rowY - 17,
-        width: columnWidth,
-        size: 10.5,
-        lineHeight: 13,
-        font: field.value ? state.fonts.sansBold : state.fonts.sans,
-        color: field.value ? colors.ink : colors.tertiary,
+
+      cell.lines.forEach((line, index) => {
+        state.page.drawText(line, {
+          x,
+          y: rowY - valueTopOffset - index * valueLineHeight,
+          size: valueSize,
+          font: cell.font,
+          color: cell.field.value ? colors.ink : colors.tertiary,
+        });
       });
     }
-    state.y = rowY - 50;
+    state.y = rowY - rowHeight;
   }
 }
 
@@ -509,9 +528,6 @@ export async function generateDealPdf(deal: DealDetail): Promise<Uint8Array> {
 
   heading(state, "Concerns & gaps");
   paragraph(state, text(deal.concerns), "No analyst concerns recorded.");
-
-  heading(state, "Missing fields");
-  bulletList(state, list(deal.missing_fields), "No fields marked as missing.");
 
   heading(state, "Red flags");
   bulletList(state, list(deal.red_flags), "No red flags captured yet.", colors.caution);
